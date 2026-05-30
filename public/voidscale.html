@@ -674,8 +674,33 @@
         // ===== AUDIO CONTEXT =====
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const masterGain = audioContext.createGain();
-        masterGain.gain.value = 0.25;
-        masterGain.connect(audioContext.destination);
+        masterGain.gain.value = 0.4;
+
+        const compressor = audioContext.createDynamicsCompressor();
+        compressor.threshold.value = -18;
+        compressor.knee.value = 6;
+        compressor.ratio.value = 4;
+        compressor.attack.value = 0.005;
+        compressor.release.value = 0.15;
+
+        const convolver = audioContext.createConvolver();
+        const reverbGain = audioContext.createGain();
+        reverbGain.gain.value = 0.22;
+        (function() {
+            const sr = audioContext.sampleRate;
+            const len = Math.floor(sr * 1.8);
+            const buf = audioContext.createBuffer(2, len, sr);
+            for (let c = 0; c < 2; c++) {
+                const d = buf.getChannelData(c);
+                for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+            }
+            convolver.buffer = buf;
+        })();
+        masterGain.connect(compressor);
+        masterGain.connect(convolver);
+        convolver.connect(reverbGain);
+        reverbGain.connect(compressor);
+        compressor.connect(audioContext.destination);
 
         // ===== ANALYSER FOR WAVEFORM VIZ =====
         const analyser = audioContext.createAnalyser();
@@ -1040,8 +1065,8 @@
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             let type = 'sine', dur = 0.5, peak = 0.3 * v;
-            if (instrument === 'piano') { type = 'triangle'; dur = 0.6; peak = 0.32 * v; }
-            else if (instrument === 'synth') { type = 'sawtooth'; dur = 0.45; peak = 0.24 * v; }
+            if (instrument === 'piano') { type = 'triangle'; dur = 0.6; peak = 0.28 * v; }
+            else if (instrument === 'synth') { type = 'sawtooth'; dur = 0.45; peak = 0.20 * v; }
             osc.type = type;
             osc.frequency.setValueAtTime(freq, when);
             let node = osc;
@@ -1052,6 +1077,32 @@
                 lp.Q.value = 6;
                 osc.connect(lp);
                 node = lp;
+                // Detuned second oscillator for width (+4 cents)
+                const osc2 = ctx.createOscillator();
+                const lp2 = ctx.createBiquadFilter();
+                osc2.type = 'sawtooth';
+                osc2.frequency.setValueAtTime(freq * Math.pow(2, 4 / 1200), when);
+                lp2.type = 'lowpass';
+                lp2.frequency.setValueAtTime(Math.min(9000, freq * 6), when);
+                lp2.Q.value = 6;
+                osc2.connect(lp2);
+                lp2.connect(gain);
+                osc2.start(when);
+                osc2.stop(when + dur + 0.05);
+            }
+            if (instrument === 'piano') {
+                // Octave partial for body
+                const osc2 = ctx.createOscillator();
+                const g2 = ctx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(freq * 2, when);
+                g2.gain.setValueAtTime(0.0001, when);
+                g2.gain.exponentialRampToValueAtTime(Math.max(0.001, peak * 0.28), when + 0.010);
+                g2.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.65);
+                osc2.connect(g2);
+                g2.connect(dest);
+                osc2.start(when);
+                osc2.stop(when + dur + 0.05);
             }
             gain.gain.setValueAtTime(0.0001, when);
             gain.gain.exponentialRampToValueAtTime(Math.max(0.001, peak), when + 0.012);
