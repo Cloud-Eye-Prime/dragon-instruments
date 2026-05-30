@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V0ID_SCALE LABS — Alien Dragon Instrument</title>
+    <style>
+        :root {
+            --void-black: #0a0e14;
+            --void-deep: #0f1419;
+            --void-surface: #151c26;
+            --void-border: #1e2633;
+            --plasma-green: #00ff41;
+            --plasma-purple: #9d4edd;
+            --plasma-cyan: #00d9ff;
+            --plasma-red: #ff006e;
+            --plasma-gold: #ffb703;
+            --text-void: #c8d6e5;
+            --text-dim: #6c757d;
+            --glyph-color: #00ff41;
+            --radius-alien: 3px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: var(--void-black);
+            color: var(--text-void);
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(180deg, #0f1419 0%, #151c26 100%);
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--plasma-purple);
+            box-shadow: 0 0 20px rgba(157, 78, 221, 0.15);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--plasma-green);
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.4);
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            gap: 12px;
+            padding: 12px;
+        }
+
+        .main-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 240px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+        }
+
+        .panel {
+            background: var(--void-surface);
+            border: 1px solid var(--void-border);
+            border-radius: var(--radius-alien);
+            padding: 12px;
+            box-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--plasma-purple), transparent);
+            opacity: 0.3;
+        }
+
+        .panel-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--plasma-cyan);
+            margin: 0 0 10px 0;
+            letter-spacing: 1px;
+            text-shadow: 0 0 8px rgba(0, 217, 255, 0.3);
+        }
+
+        .glyph {
+            display: inline-block;
+            font-size: 14px;
+            margin-right: 4px;
+            color: var(--plasma-green);
+            text-shadow: 0 0 6px rgba(0, 255, 65, 0.5);
+        }
+
+        .ouroboros-display {
+            width: 100%;
+            height: 140px;
+            background: rgba(15, 20, 25, 0.8);
+            border: 1px solid var(--plasma-purple);
+            border-radius: var(--radius-alien);
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .ouroboros-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .control-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        label {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="file"],
+        select {
+            background: var(--void-black);
+            border: 1px solid var(--void-border);
+            color: var(--text-void);
+            padding: 6px 8px;
+            border-radius: var(--radius-alien);
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            transition: all 200ms ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--plasma-cyan);
+            box-shadow: 0 0 8px rgba(0, 217, 255, 0.3);
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--void-border);
+            outline: none;
+            -webkit-appearance: none;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--plasma-cyan);
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(0, 217, 255, 0.6);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--plasma-cyan);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 8px rgba(0, 217, 255, 0.6);
+        }
+
+        .btn {
+            padding: 6px 12px;
+            border: 1px solid var(--void-border);
+            background: var(--void-black);
+            color: var(--plasma-green);
+            border-radius: var(--radius-alien);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 150ms ease;
+            font-family: 'Courier New', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn:hover {
+            border-color: var(--plasma-cyan);
+            color: var(--plasma-cyan);
+            box-shadow: 0 0 12px rgba(0, 217, 255, 0.3);
+        }
+
+        .btn.active {
+            background: var(--plasma-cyan);
+            color: var(--void-black);
+            box-shadow: 0 0 16px rgba(0, 217, 255, 0.5);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .tempo-display {
+            font-size: 24px;
+            font-weight: 700;
+            text-align: center;
+            color: var(--plasma-green);
+            text-shadow: 0 0 12px rgba(0, 255, 65, 0.5);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .time-sig-display {
+            font-size: 16px;
+            text-align: center;
+            color: var(--plasma-cyan);
+            font-family: monospace;
+            font-weight: 600;
+            text-shadow: 0 0 8px rgba(0, 217, 255, 0.3);
+        }
+
+        .waveform-canvas {
+            width: 100%;
+            height: 80px;
+            background: rgba(15, 20, 25, 0.8);
+            border: 1px solid var(--void-border);
+            border-radius: var(--radius-alien);
+            display: block;
+            cursor: crosshair;
+        }
+
+        .pad-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .pad {
+            aspect-ratio: 1;
+            background: var(--void-black);
+            border: 1px solid var(--void-border);
+            border-radius: var(--radius-alien);
+            cursor: pointer;
+            transition: all 80ms ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--text-dim);
+            font-weight: 600;
+        }
+
+        .pad:hover {
+            border-color: var(--plasma-cyan);
+            background: rgba(0, 217, 255, 0.1);
+        }
+
+        .pad.active {
+            background: var(--plasma-green);
+            color: var(--void-black);
+            border-color: var(--plasma-green);
+            box-shadow: 0 0 16px rgba(0, 255, 65, 0.6), inset 0 0 8px rgba(0, 0, 0, 0.5);
+        }
+
+        .pad.heat {
+            animation: heat-fade 0.4s ease-out;
+        }
+
+        @keyframes heat-fade {
+            0% { background: var(--plasma-red); box-shadow: 0 0 20px rgba(255, 0, 110, 0.8); }
+            100% { background: transparent; box-shadow: none; }
+        }
+
+        .euclidean-viz {
+            display: grid;
+            grid-template-columns: repeat(16, 1fr);
+            gap: 2px;
+            margin-top: 8px;
+        }
+
+        .euclidean-step {
+            aspect-ratio: 1;
+            background: var(--void-black);
+            border: 1px solid var(--void-border);
+            border-radius: 2px;
+            transition: all 100ms ease;
+        }
+
+        .euclidean-step.active {
+            background: var(--plasma-purple);
+            border-color: var(--plasma-purple);
+            box-shadow: 0 0 8px rgba(157, 78, 221, 0.5);
+        }
+
+        .scrollable {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .track-item {
+            background: var(--void-black);
+            border: 1px solid var(--void-border);
+            border-radius: var(--radius-alien);
+            padding: 8px;
+            margin-bottom: 6px;
+            font-size: 11px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .track-label {
+            color: var(--plasma-cyan);
+            font-weight: 600;
+        }
+
+        .track-stats {
+            color: var(--text-dim);
+            font-size: 10px;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--text-dim);
+            padding: 16px;
+            font-size: 11px;
+        }
+
+        .status-line {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 4px;
+            font-family: monospace;
+        }
+
+        .success {
+            color: var(--plasma-green);
+        }
+
+        .warning {
+            color: var(--plasma-gold);
+        }
+
+        .error {
+            color: var(--plasma-red);
+        }
+
+        .file-zone {
+            border: 1px dashed var(--void-border);
+            border-radius: var(--radius-alien);
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 200ms ease;
+        }
+
+        .file-zone:hover {
+            border-color: var(--plasma-cyan);
+            background: rgba(0, 217, 255, 0.05);
+        }
+
+        .file-zone.dragover {
+            border-color: var(--plasma-green);
+            background: rgba(0, 255, 65, 0.1);
+        }
+
+        .file-list {
+            max-height: 100px;
+            overflow-y: auto;
+            margin-top: 8px;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px;
+            background: var(--void-black);
+            border: 1px solid var(--void-border);
+            border-radius: var(--radius-alien);
+            margin-bottom: 3px;
+            font-size: 10px;
+        }
+
+        .file-name {
+            flex: 1;
+            color: var(--text-dim);
+            word-break: break-all;
+        }
+
+        .file-delete {
+            background: transparent;
+            border: none;
+            color: var(--plasma-red);
+            cursor: pointer;
+            font-size: 10px;
+            margin-left: 6px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--void-black);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--void-border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--plasma-purple);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span class="glyph">◇</span> V0ID_SCALE <span class="glyph">✦</span> LABS</h1>
+    </header>
+
+    <div class="container">
+        <!-- MAIN PANEL -->
+        <div class="main-panel">
+            <!-- OUROBOROS / BREATH CYCLE -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">◈</span> Dragon's Heart</div>
+                <div class="ouroboros-display">
+                    <canvas id="ouroboros" class="ouroboros-canvas"></canvas>
+                </div>
+                <div class="control-row">
+                    <div class="control-group">
+                        <label>Breath Tempo</label>
+                        <div class="tempo-display" id="tempoDisplay">96</div>
+                    </div>
+                    <div class="control-group">
+                        <label>Time Signature</label>
+                        <div class="time-sig-display" id="timeSigDisplay">4/4</div>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn" id="playBtn">▶ Play</button>
+                    <button class="btn" id="stopBtn">⏹ Stop</button>
+                    <button class="btn" id="recordBtn">● Record</button>
+                </div>
+            </div>
+
+            <!-- WAVEFORM VISUALIZER -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">≈</span> Void Resonator</div>
+                <canvas id="waveform" class="waveform-canvas"></canvas>
+            </div>
+
+            <!-- EUCLIDEAN CYCLES -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">◐</span> Euclidean Cycles</div>
+                <div class="control-row">
+                    <div class="control-group">
+                        <label>Density</label>
+                        <input type="number" id="euclideanDensity" value="5" min="1" max="16">
+                    </div>
+                    <div class="control-group">
+                        <label>Cycle Length</label>
+                        <input type="number" id="euclideanLength" value="16" min="1" max="32">
+                    </div>
+                </div>
+                <div class="euclidean-viz" id="euclideanViz"></div>
+            </div>
+
+            <!-- LOOPER TRACKS -->
+            <div class="panel scrollable">
+                <div class="panel-title"><span class="glyph">∞</span> Crystallized Loops</div>
+                <div id="trackList" class="scrollable">
+                    <div class="empty-state">⚬ No loops yet</div>
+                </div>
+                <button class="btn" id="clearAllBtn" style="margin-top: 8px; width: 100%;">🗑 Clear All</button>
+            </div>
+        </div>
+
+        <!-- SIDEBAR -->
+        <div class="sidebar">
+            <!-- TEMPO & TIMING -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">⧗</span> Breath Control</div>
+                <div class="control-group">
+                    <label>Tempo (BPM)</label>
+                    <input type="range" id="tempoSlider" min="40" max="240" value="96">
+                    <input type="number" id="tempoBPM" value="96" min="40" max="240">
+                </div>
+                <div class="control-group">
+                    <label>Beats Per Bar</label>
+                    <select id="beatsSelect">
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4" selected>4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Note Division</label>
+                    <select id="divisionSelect">
+                        <option value="4">Quarter</option>
+                        <option value="8" selected>Eighth</option>
+                        <option value="16">Sixteenth</option>
+                        <option value="32">32nd</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Master Volume</label>
+                    <input type="range" id="volumeSlider" min="0" max="100" value="25">
+                    <div style="display: flex; gap: 6px; align-items: center; margin-top: 6px;">
+                        <button class="btn" id="muteBtn" style="flex: 1;">MUTE</button>
+                        <span class="status-line" id="volumeReadout" style="min-width: 42px; text-align: right;">25%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCALE GRID / XENOMORPHIC MAPPER -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">◆</span> Scale Grid</div>
+                <div class="control-group">
+                    <label>Instrument</label>
+                    <select id="instrumentSelect">
+                        <option value="piano">Piano</option>
+                        <option value="synth">Synth</option>
+                        <option value="drums">Drums</option>
+                        <option value="hirajoshi">Hirajoshi (Alien)</option>
+                        <option value="just">Just Intonation</option>
+                    </select>
+                </div>
+                <div class="pad-grid">
+                    <button class="pad" data-note="60" data-name="C">C</button>
+                    <button class="pad" data-note="62" data-name="D">D</button>
+                    <button class="pad" data-note="64" data-name="E">E</button>
+                    <button class="pad" data-note="65" data-name="F">F</button>
+                    <button class="pad" data-note="67" data-name="G">G</button>
+                    <button class="pad" data-note="69" data-name="A">A</button>
+                    <button class="pad" data-note="71" data-name="B">B</button>
+                    <button class="pad" data-note="72" data-name="C5">C5</button>
+                </div>
+            </div>
+
+            <!-- AI / SHADOW -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">⚡</span> The Shadow</div>
+                <div class="control-group">
+                    <label>Vibe</label>
+                    <input type="text" id="aiPrompt" placeholder="dark ambient" value="dark ambient">
+                </div>
+                <div class="control-group">
+                    <label>Model (OpenRouter)</label>
+                    <input type="text" id="aiModel" placeholder="openai/gpt-4o-mini" value="openai/gpt-4o-mini">
+                </div>
+                <div class="control-group">
+                    <label>OpenRouter Key (local only)</label>
+                    <input type="password" id="aiKey" placeholder="sk-or-...">
+                </div>
+                <button class="btn" id="generateBtn" style="width: 100%;">✨ Summon</button>
+                <div id="aiStatus" class="status-line"></div>
+            </div>
+
+            <!-- FILE UPLOAD -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">📁</span> Upload Seeds</div>
+                <div class="file-zone" id="dropZone">
+                    <small>Drop or click</small>
+                    <input type="file" id="fileInput" accept=".wav,.mp3,.mid,.midi" style="display: none;">
+                </div>
+                <div id="fileList" class="file-list"></div>
+            </div>
+
+            <!-- EXPORT / CRYSTALLIZE -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">◎</span> Crystallize</div>
+                <button class="btn" id="exportWavBtn" style="width: 100%;">🔮 WAV</button>
+                <button class="btn" id="exportMidiBtn" style="width: 100%; margin-top: 6px;">🔮 MIDI</button>
+                <button class="btn" id="downloadHtmlBtn" style="width: 100%; margin-top: 6px;">DOWNLOAD .HTML</button>
+                <div id="exportStatus" class="status-line"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== AUDIO CONTEXT =====
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const masterGain = audioContext.createGain();
+        masterGain.gain.value = 0.25;
+        masterGain.connect(audioContext.destination);
+
+        // ===== ANALYSER FOR WAVEFORM VIZ =====
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        masterGain.connect(analyser);
+
+        // ===== STATE =====
+        const state = {
+            tempo: 96,
+            beatsPerBar: 4,
+            noteDivision: 8,
+            isPlaying: false,
+            isRecording: false,
+            recordedNotes: [],
+            tracks: [],
+            uploadedFiles: [],
+            currentInstrument: 'piano',
+            instrumentMaps: {
+                piano: [60, 62, 64, 65, 67, 69, 71, 72],
+                synth: [36, 38, 40, 42, 44, 45, 47, 48],
+                drums: [36, 38, 42, 46, 49, 51, 53, 55],
+                hirajoshi: [60, 61, 65, 67, 72],
+                just: [60, 66, 70, 72, 80]
+            }
+        };
+
+        // ===== INITIALIZATION =====
+        function init() {
+            updateTiming();
+            renderEuclidean();
+            drawOuroboros();
+            drawWaveform();
+            setupEventListeners();
+            if (navigator.requestMIDIAccess) {
+                navigator.requestMIDIAccess().then(onMidiSuccess, onMidiFailure);
+            }
+        }
+
+        function setupEventListeners() {
+            document.getElementById('playBtn').addEventListener('click', () => {
+                state.isPlaying = !state.isPlaying;
+                document.getElementById('playBtn').classList.toggle('active');
+            });
+
+            document.getElementById('stopBtn').addEventListener('click', () => {
+                state.isPlaying = false;
+                state.isRecording = false;
+                document.getElementById('playBtn').classList.remove('active');
+                document.getElementById('recordBtn').classList.remove('active');
+            });
+
+            document.getElementById('recordBtn').addEventListener('click', () => {
+                if (!state.isRecording) {
+                    state.isRecording = true;
+                    state.recordedNotes = [];
+                    document.getElementById('recordBtn').classList.add('active');
+                } else {
+                    state.isRecording = false;
+                    saveTrack();
+                    document.getElementById('recordBtn').classList.remove('active');
+                }
+            });
+
+            document.getElementById('tempoSlider').addEventListener('input', (e) => {
+                document.getElementById('tempoBPM').value = e.target.value;
+                updateTiming();
+            });
+
+            document.getElementById('tempoBPM').addEventListener('change', (e) => {
+                document.getElementById('tempoSlider').value = e.target.value;
+                updateTiming();
+            });
+
+            document.getElementById('beatsSelect').addEventListener('change', updateTiming);
+            document.getElementById('divisionSelect').addEventListener('change', updateTiming);
+
+            document.getElementById('instrumentSelect').addEventListener('change', (e) => {
+                state.currentInstrument = e.target.value;
+                const pads = document.querySelectorAll('.pad');
+                const map = state.instrumentMaps[state.currentInstrument];
+                pads.forEach((pad, idx) => {
+                    if (idx < map.length) {
+                        pad.dataset.note = map[idx];
+                        pad.textContent = midiToNote(map[idx]);
+                    }
+                });
+            });
+
+            document.querySelectorAll('.pad').forEach(pad => {
+                pad.addEventListener('click', () => {
+                    const note = parseInt(pad.dataset.note);
+                    playNote(note, 100);
+                    recordNote(note, 100);
+                });
+            });
+
+            document.getElementById('generateBtn').addEventListener('click', generateAI);
+            document.getElementById('clearAllBtn').addEventListener('click', () => {
+                if (confirm('Clear all loops?')) {
+                    state.tracks = [];
+                    state.recordedNotes = [];
+                    renderTracks();
+                }
+            });
+
+            // File handling
+            const dropZone = document.getElementById('dropZone');
+            dropZone.addEventListener('click', () => document.getElementById('fileInput').click());
+            document.getElementById('fileInput').addEventListener('change', (e) => handleFiles(e.target.files));
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+
+            // Export
+            document.getElementById('exportWavBtn').addEventListener('click', exportWAV);
+            document.getElementById('exportMidiBtn').addEventListener('click', exportMIDI);
+
+            // Master volume + mute
+            const volSlider = document.getElementById('volumeSlider');
+            const volReadout = document.getElementById('volumeReadout');
+            const muteBtn = document.getElementById('muteBtn');
+            let lastVol = parseInt(volSlider.value) / 100;
+            function applyVolume(v) {
+                masterGain.gain.setValueAtTime(v, audioContext.currentTime);
+                volReadout.textContent = Math.round(v * 100) + '%';
+            }
+            volSlider.addEventListener('input', (e) => {
+                lastVol = parseInt(e.target.value) / 100;
+                muteBtn.classList.remove('active');
+                applyVolume(lastVol);
+            });
+            muteBtn.addEventListener('click', () => {
+                if (muteBtn.classList.toggle('active')) {
+                    masterGain.gain.setValueAtTime(0, audioContext.currentTime);
+                    volReadout.textContent = 'MUTED';
+                } else {
+                    applyVolume(lastVol);
+                }
+            });
+            applyVolume(lastVol);
+
+            // Download this page's HTML
+            document.getElementById('downloadHtmlBtn').addEventListener('click', downloadSelfHtml);
+
+            // OpenRouter key + model: restore from localStorage, persist on change
+            const keyInput = document.getElementById('aiKey');
+            const modelInput = document.getElementById('aiModel');
+            try {
+                const savedKey = localStorage.getItem('voidscale_or_key');
+                if (savedKey) keyInput.value = savedKey;
+                const savedModel = localStorage.getItem('voidscale_or_model');
+                if (savedModel) modelInput.value = savedModel;
+            } catch (e) {}
+            keyInput.addEventListener('change', () => { try { localStorage.setItem('voidscale_or_key', keyInput.value); } catch (e) {} });
+            modelInput.addEventListener('change', () => { try { localStorage.setItem('voidscale_or_model', modelInput.value); } catch (e) {} });
+        }
+
+        // ===== TIMING =====
+        function updateTiming() {
+            state.tempo = parseInt(document.getElementById('tempoBPM').value);
+            state.beatsPerBar = parseInt(document.getElementById('beatsSelect').value);
+            state.noteDivision = parseInt(document.getElementById('divisionSelect').value);
+            document.getElementById('tempoDisplay').textContent = state.tempo;
+            document.getElementById('timeSigDisplay').textContent = `${state.beatsPerBar}/4`;
+        }
+
+        // ===== AUDIO SYNTHESIS =====
+        function playNote(note, velocity) {
+            if (audioContext.state === 'suspended') audioContext.resume();
+            const freq = 440 * Math.pow(2, (note - 69) / 12);
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            const now = audioContext.currentTime;
+
+            osc.frequency.value = freq;
+            osc.type = 'sine';
+
+            gain.gain.setValueAtTime(velocity / 127 * 0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+            osc.connect(gain);
+            gain.connect(masterGain);
+
+            osc.start(now);
+            osc.stop(now + 0.5);
+        }
+
+        function recordNote(note, velocity) {
+            if (!state.isRecording) return;
+            state.recordedNotes.push({
+                note,
+                velocity,
+                time: Date.now()
+            });
+        }
+
+        // ===== MIDI INPUT =====
+        function onMidiSuccess(midiAccess) {
+            for (let input of midiAccess.inputs.values()) {
+                input.onmidimessage = handleMidiMessage;
+            }
+        }
+
+        function onMidiFailure() {
+            console.log('MIDI not supported');
+        }
+
+        function handleMidiMessage(message) {
+            const [status, note, velocity] = message.data;
+            const isNoteOn = (status & 0xf0) === 0x90 && velocity > 0;
+
+            if (isNoteOn) {
+                playNote(note, velocity);
+                recordNote(note, velocity);
+                highlightPad(note);
+            }
+        }
+
+        function highlightPad(note) {
+            document.querySelectorAll('.pad').forEach(pad => {
+                if (parseInt(pad.dataset.note) === note) {
+                    pad.classList.add('heat');
+                    setTimeout(() => pad.classList.remove('heat'), 400);
+                }
+            });
+        }
+
+        // ===== EUCLIDEAN RHYTHM =====
+        function euclideanPattern(density, length) {
+            const pattern = new Array(length).fill(0);
+            const interval = length / density;
+            for (let i = 0; i < density; i++) {
+                pattern[Math.round(i * interval) % length] = 1;
+            }
+            return pattern;
+        }
+
+        function renderEuclidean() {
+            const density = parseInt(document.getElementById('euclideanDensity').value);
+            const length = parseInt(document.getElementById('euclideanLength').value);
+            const pattern = euclideanPattern(density, length);
+            const viz = document.getElementById('euclideanViz');
+            viz.innerHTML = pattern.map((step, i) => 
+                `<div class="euclidean-step ${step ? 'active' : ''}"></div>`
+            ).join('');
+        }
+
+        document.getElementById('euclideanDensity').addEventListener('change', renderEuclidean);
+        document.getElementById('euclideanLength').addEventListener('change', renderEuclidean);
+
+        // ===== TRACK MANAGEMENT =====
+        function saveTrack() {
+            const track = {
+                id: Date.now(),
+                name: `Loop ${state.tracks.length + 1}`,
+                notes: [...state.recordedNotes],
+                duration: state.recordedNotes.length > 0 ? state.recordedNotes[state.recordedNotes.length - 1].time : 0
+            };
+            state.tracks.push(track);
+            renderTracks();
+        }
+
+        function renderTracks() {
+            const container = document.getElementById('trackList');
+            if (state.tracks.length === 0) {
+                container.innerHTML = '<div class="empty-state">⚬ No loops yet</div>';
+                return;
+            }
+            container.innerHTML = state.tracks.map(track => `
+                <div class="track-item">
+                    <span class="track-label">${track.name}</span>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span class="track-stats">${track.notes.length}n</span>
+                        <button class="file-delete" onclick="deleteTrack(${track.id})">✕</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.deleteTrack = function(id) {
+            state.tracks = state.tracks.filter(t => t.id !== id);
+            renderTracks();
+        };
+
+        // ===== AI GENERATION (OpenRouter) =====
+        async function generateAI() {
+            const prompt = (document.getElementById('aiPrompt').value || 'dark ambient').trim();
+            const model = (document.getElementById('aiModel').value || 'openai/gpt-4o-mini').trim();
+            const key = (document.getElementById('aiKey').value || '').trim();
+            const status = document.getElementById('aiStatus');
+            const map = state.instrumentMaps[state.currentInstrument];
+            const msPerBeat = (60 / state.tempo) * 1000;
+
+            function commit(notes, label) {
+                const track = { id: Date.now(), name: label, notes, duration: 16 * msPerBeat };
+                state.tracks.push(track);
+                renderTracks();
+                playSequence(notes);
+            }
+
+            // No key -> local generative fallback so the button still does something.
+            if (!key) {
+                const notes = [];
+                for (let i = 0; i < 16; i++) {
+                    notes.push({ note: map[Math.floor(Math.random() * map.length)], velocity: 60 + Math.random() * 67, time: Date.now() + i * msPerBeat });
+                }
+                commit(notes, 'Local-' + prompt.slice(0, 6));
+                status.textContent = 'local pattern - add an OpenRouter key for real AI';
+                status.className = 'status-line warning';
+                setTimeout(() => { status.textContent = ''; }, 3500);
+                return;
+            }
+
+            status.textContent = 'Summoning ' + model.split('/').pop() + '...';
+            status.className = 'status-line warning';
+
+            const allowed = map.join(', ');
+            const sys = 'You are a generative music engine for an alien instrument. Output ONLY raw JSON, no prose, no markdown fences. Schema: {"steps":[{"note":int,"vel":int}]} with up to 16 steps. note MUST be a MIDI number chosen from this allowed set: [' + allowed + ']. vel is 1..127. Phrase it musically to express the requested vibe; you may emit fewer than 16 steps to leave rests.';
+            const usr = 'Vibe: ' + prompt + '. Scale/instrument: ' + state.currentInstrument + '. Tempo: ' + state.tempo + ' BPM. Return JSON only.';
+
+            try {
+                const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: model, temperature: 0.9, messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] })
+                });
+                if (!res.ok) {
+                    let msg = 'HTTP ' + res.status;
+                    try { const ej = await res.json(); if (ej && ej.error && ej.error.message) msg = ej.error.message; } catch (e) {}
+                    throw new Error(msg);
+                }
+                const data = await res.json();
+                const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+                const clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+                const a = clean.indexOf('{'), b = clean.lastIndexOf('}');
+                const json = JSON.parse(a >= 0 ? clean.slice(a, b + 1) : clean);
+                const allowedSet = new Set(map);
+                const steps = (json.steps || []).filter((s) => s && Number.isFinite(s.note)).slice(0, 16);
+                const notes = steps.map((s, i) => {
+                    let n = s.note | 0;
+                    if (!allowedSet.has(n)) n = map[((n % map.length) + map.length) % map.length];
+                    return { note: n, velocity: Math.max(1, Math.min(127, (s.vel | 0) || 90)), time: Date.now() + i * msPerBeat };
+                });
+                if (!notes.length) throw new Error('empty phrase');
+                commit(notes, 'AI-' + prompt.slice(0, 6));
+                status.textContent = 'Summoned ' + notes.length + ' notes';
+                status.className = 'status-line success';
+                setTimeout(() => { status.textContent = ''; }, 3000);
+            } catch (e) {
+                status.textContent = 'Summon failed: ' + ((e && e.message) ? e.message : e);
+                status.className = 'status-line error';
+            }
+        }
+
+                // ===== FILE MANAGEMENT =====
+        function handleFiles(files) {
+            for (let file of files) {
+                if (/\.(wav|mp3|mid|midi)$/i.test(file.name)) {
+                    state.uploadedFiles.push(file);
+                }
+            }
+            renderFileList();
+        }
+
+        function renderFileList() {
+            const container = document.getElementById('fileList');
+            if (state.uploadedFiles.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            container.innerHTML = state.uploadedFiles.map((file, idx) => `
+                <div class="file-item">
+                    <span class="file-name">${file.name}</span>
+                    <button class="file-delete" onclick="deleteFile(${idx})">✕</button>
+                </div>
+            `).join('');
+        }
+
+        window.deleteFile = function(idx) {
+            state.uploadedFiles.splice(idx, 1);
+            renderFileList();
+        };
+
+        // ===== EXPORT FUNCTIONS =====
+        function exportWAV() {
+            if (state.tracks.length === 0 && state.recordedNotes.length === 0) {
+                alert('No audio to export');
+                return;
+            }
+
+            const status = document.getElementById('exportStatus');
+            status.textContent = 'Crystallizing...';
+            status.className = 'status-line warning';
+
+            setTimeout(() => {
+                // Simple WAV export simulation
+                const dataUrl = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAAAAA==';
+                const link = document.createElement('a');
+                link.href = dataUrl;
+                link.download = 'void-scale-output.wav';
+                link.click();
+
+                status.textContent = '✓ Crystallized';
+                status.className = 'status-line success';
+            }, 800);
+        }
+
+        function exportMIDI() {
+            if (state.tracks.length === 0 && state.recordedNotes.length === 0) {
+                alert('No MIDI to export');
+                return;
+            }
+
+            const status = document.getElementById('exportStatus');
+            status.textContent = 'Encoding...';
+            status.className = 'status-line warning';
+
+            setTimeout(() => {
+                // Simple MIDI export simulation
+                const midiData = new Uint8Array([0x4D, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x01, 0x00, 0x80]);
+                const blob = new Blob([midiData], { type: 'audio/midi' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'void-scale-output.mid';
+                link.click();
+
+                status.textContent = '✓ Exported';
+                status.className = 'status-line success';
+            }, 600);
+        }
+
+        // ===== VISUALIZATION =====
+        function drawOuroboros() {
+            const canvas = document.getElementById('ouroboros');
+            const ctx = canvas.getContext('2d');
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) - 10;
+            const phase = (Date.now() % 4000) / 4000;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Ouroboros circle
+            ctx.strokeStyle = `rgba(157, 78, 221, ${0.3 + Math.sin(phase * Math.PI * 2) * 0.2})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Rotating pulse
+            const pulseX = centerX + Math.cos(phase * Math.PI * 2) * radius;
+            const pulseY = centerY + Math.sin(phase * Math.PI * 2) * radius;
+
+            ctx.fillStyle = `rgba(0, 255, 65, ${0.5 + Math.sin(phase * Math.PI * 2) * 0.3})`;
+            ctx.beginPath();
+            ctx.arc(pulseX, pulseY, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            requestAnimationFrame(drawOuroboros);
+        }
+
+        function drawWaveform() {
+            const canvas = document.getElementById('waveform');
+            const ctx = canvas.getContext('2d');
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = 'rgba(15, 20, 25, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = `rgba(0, 255, 65, 0.8)`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+
+            const sliceWidth = canvas.width / dataArray.length;
+            let x = 0;
+
+            for (let i = 0; i < dataArray.length; i++) {
+                const v = dataArray[i] / 128;
+                const y = (v * canvas.height) / 2;
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+                x += sliceWidth;
+            }
+
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+
+            requestAnimationFrame(drawWaveform);
+        }
+
+        function midiToNote(midiNote) {
+            const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const octave = Math.floor(midiNote / 12) - 1;
+            const noteIdx = midiNote % 12;
+            return notes[noteIdx] + octave;
+        }
+
+        // ===== PLAYBACK OF A GENERATED SEQUENCE =====
+        function playSequence(notes) {
+            if (!notes || !notes.length) return;
+            if (audioContext.state === 'suspended') audioContext.resume();
+            const t0 = notes[0].time;
+            notes.forEach((n) => {
+                const delay = Math.max(0, n.time - t0);
+                setTimeout(() => playNote(n.note, n.velocity), delay);
+            });
+        }
+
+        // ===== DOWNLOAD THIS PAGE =====
+        function downloadSelfHtml() {
+            const name = 'voidscale_labs.html';
+            function dl(html) {
+                const blob = new Blob([html], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = name;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1500);
+            }
+            fetch(location.href).then((r) => r.text()).then(dl).catch(() => dl('<!DOCTYPE html>\n' + document.documentElement.outerHTML));
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+</html>

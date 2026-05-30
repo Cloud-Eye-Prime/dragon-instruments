@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ghatika v6 - standalone</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  function downloadSelfHtml(name){
+    function dl(html){var b=new Blob([html],{type:'text/html'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download=name||'page.html';a.click();setTimeout(function(){URL.revokeObjectURL(u);},1500);}
+    fetch(location.href).then(function(r){return r.text();}).then(dl).catch(function(){dl('<!doctype html>'+document.documentElement.outerHTML);});
+  }
+</script>
+<style>
+  html,body{margin:0;background:#06070b;min-height:100%;}
+  #keybar{font-family:'IBM Plex Mono',monospace;background:#0e1016;color:#e7e3da;padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid rgba(231,227,218,0.12);}
+  #keybar input{flex:1;min-width:220px;background:#06070b;color:#e7e3da;border:1px solid rgba(231,227,218,0.2);border-radius:6px;padding:6px 8px;font-family:inherit;font-size:12px;}
+  #keybar button{background:#4a8fd4;color:#06070b;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:12px;}
+  #keybar .lbl{font-size:11px;letter-spacing:1px;color:#878d9a;text-transform:uppercase;}
+  #keybar .ok{color:#5fae8a;}
+  #root{max-width:780px;margin:0 auto;padding:18px 10px 60px;}
+  .hint{font-family:'IBM Plex Mono',monospace;color:#878d9a;font-size:11px;line-height:1.6;padding:8px 14px;}
+</style>
+</head>
+<body>
+<div id="keybar">
+  <span class="lbl">Anthropic API key</span>
+  <input id="apikey" type="password" placeholder="sk-ant-... (kept in this tab's memory only; never stored or sent anywhere but Anthropic)" />
+  <button onclick="window.__GHATIKA_KEY__=document.getElementById('apikey').value;document.getElementById('keystat').textContent=window.__GHATIKA_KEY__?'key set for this session':'no key';">set key</button>
+  <span id="keystat" class="lbl">no key</span>
+  <button onclick="downloadSelfHtml('ghatika_v6.html')">download .html</button>
+</div>
+<div class="hint">
+  Standalone build. The <b>AI DJ</b> and <b>AI compose</b> call the Anthropic API directly from your browser, so they need a key set above (it lives only in this tab's memory). <b>MIDI out</b> uses the Web MIDI API, which a normal browser permits for a local/hosted page. Both are blocked in the chat-preview sandbox - that is what this file exists to escape.
+</div>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useRef, useEffect, useCallback } = React;
+
+/*
+  GHATIKA -- THE EMBRYONIC BREATH  (v5: + AI compose, effects rack,
+  swappable instrument voices, live MIDI out)
+
+  Single clock at adjustable BPM. An 8-beat breath = 32 sixteenths, so the
+  breath rate is BPM/8 breaths per minute (96 -> 12). Layers, all optional:
+    - entrainment drone (binaural / monaural / isochronic)
+    - breathing 'wave' bed
+    - generative rhythm (stackable styles)
+    - a melodic voice (swappable timbre) through modes/pentatonics/ragas/5ths
+    - an AI-composed phrase (Anthropic API) that becomes a playable take
+
+  Master effects rack: filter -> drive -> delay -> reverb (each wet-mixed).
+  Export: MIDI (hand-written SMF, drums GM ch10, melody ch1) and WAV
+  (deterministic offline bounce). Live MIDI out via Web MIDI (24 PPQN clock
+  + notes) -- works on a standalone hosted page; the chat-artifact sandbox
+  blocks Web MIDI, and the UI says so honestly when access is denied.
+
+  Honesty carries: entrainment effects are subjectively reported, not
+  established; rhythm styles are structural homages, not anyone's sacred
+  repertoire; not a medical device. All audio synthesized. Deploys nothing.
+*/
+
+const BEATS_PER_BREATH = 8;
+const STEPS_PER_BREATH = 32;     // sixteenths
+const EXPORT_BARS = 8;           // length of an exported take (8 bars = 4 breaths)
+
+const PHASES = [
+  { name: "Inhale", element: "Water", glyph: "\u6c34", color: "#4a8fd4", a: 0, b: 2 },
+  { name: "Pause",  element: "Metal", glyph: "\u91d1", color: "#cdd6e2", a: 2, b: 4 },
+  { name: "Exhale", element: "Fire",  glyph: "\u706b", color: "#e8743f", a: 4, b: 6 },
+  { name: "Rest",   element: "Earth", glyph: "\u571f", color: "#d4a843", a: 6, b: 8 },
+];
+
+const BANDS = [
+  { key: "delta", name: "Delta", hz: 2.5, color: "#3556a8" },
+  { key: "theta", name: "Theta", hz: 6, color: "#4a8fd4" },
+  { key: "alpha", name: "Alpha", hz: 10, color: "#5fae8a" },
+  { key: "beta", name: "Beta", hz: 18, color: "#caa24a" },
+  { key: "gamma", name: "Gamma", hz: 40, color: "#e8743f" },
+  { key: "hypergamma", name: "Hypergamma", hz: 100, color: "#d24a6a" },
+];
+
+const JOURNEY = [
+  { label: "Arrive", hz: 10, weight: 1.0 }, { label: "Soften", hz: 7, weight: 1.5 },
+  { label: "Descend", hz: 5, weight: 1.5 }, { label: "Deep still", hz: 2.5, weight: 2.0 },
+  { label: "Return", hz: 6, weight: 1.5 }, { label: "Quicken", hz: 40, weight: 1.0 },
+  { label: "Integrate", hz: 10, weight: 1.5 },
+];
+
+const STYLES = [
+  { key: "icaro", name: "Icaro \u00b7 chacapa", blurb: "Amazonian medicine-song pulse; leaf-rattle ostinato" },
+  { key: "aka", name: "Aka \u00b7 hocket", blurb: "Central African interlocking" },
+  { key: "baka", name: "Baka \u00b7 water+clap", blurb: "Airy water-drum and claps" },
+  { key: "mbuti", name: "Mbuti \u00b7 forest", blurb: "Minimal forest heartbeat" },
+  { key: "trance", name: "Trance \u00b7 pulse", blurb: "Steady driving journey-drum" },
+  { key: "hiphop", name: "Hip-hop \u00b7 boom-bap", blurb: "Kick-snare backbeat" },
+];
+
+const VOICES = ["kick", "frame", "conga", "snare", "clap", "shaker", "tek"];
+const VOICE_LABEL = { kick: "kick", frame: "frame", conga: "conga", snare: "snare", clap: "clap", shaker: "shaker", tek: "wood" };
+const VOICE_COLOR = { kick: "#c0463a", frame: "#4a8fd4", conga: "#d4a843", snare: "#cdd6e2", clap: "#5fae8a", shaker: "#b9c0cd", tek: "#e8743f" };
+const GM_DRUM = { kick: 36, snare: 38, clap: 39, frame: 41, conga: 64, shaker: 82, tek: 76 };
+
+// scales / modes / ragas as semitone intervals from the root
+const SCALES = {
+  major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10], dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10], lydian: [0, 2, 4, 6, 7, 9, 11], mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  locrian: [0, 1, 3, 5, 6, 8, 10], pentMajor: [0, 2, 4, 7, 9], pentMinor: [0, 3, 5, 7, 10],
+  blues: [0, 3, 5, 6, 7, 10], chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  bhairav: [0, 1, 4, 5, 7, 8, 11], yaman: [0, 2, 4, 6, 7, 9, 11], bhairavi: [0, 1, 3, 5, 7, 8, 10], kafi: [0, 2, 3, 5, 7, 9, 10],
+};
+const SCALE_OPTIONS = [
+  { g: "modes", items: ["major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "locrian"] },
+  { g: "penta/blues", items: ["pentMajor", "pentMinor", "blues", "chromatic"] },
+  { g: "ragas", items: ["bhairav", "yaman", "bhairavi", "kafi"] },
+];
+const SCALE_LABEL = { major: "Major", minor: "Minor", dorian: "Dorian", phrygian: "Phrygian", lydian: "Lydian", mixolydian: "Mixolydian", locrian: "Locrian", pentMajor: "Penta major", pentMinor: "Penta minor", blues: "Blues", chromatic: "Chromatic", bhairav: "Raga Bhairav", yaman: "Raga Yaman", bhairavi: "Raga Bhairavi", kafi: "Raga Kafi" };
+const PATTERNS = [{ k: "scale", n: "scale run" }, { k: "arp", n: "arpeggio" }, { k: "melody", n: "melody" }, { k: "fifths", n: "circle of 5ths" }, { k: "raga", n: "raga ornament" }];
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const INSTRUMENTS = [
+  { k: "triangle", n: "soft tri" }, { k: "fm", n: "FM bell" }, { k: "pluck", n: "pluck" },
+  { k: "saw", n: "saw pad" }, { k: "square", n: "reed" }, { k: "am", n: "AM glass" },
+];
+
+function smoothstep(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }
+function bandForHz(hz) { let best = BANDS[0], d = 1e9; for (const b of BANDS) { const dd = Math.abs(Math.log(b.hz) - Math.log(hz)); if (dd < d) { d = dd; best = b; } } return best; }
+function breathEnvForStep(step) { const bp = (step % STEPS_PER_BREATH) / 4; if (bp < 2) return smoothstep(bp / 2); if (bp < 4) return 1; if (bp < 6) return 1 - smoothstep((bp - 4) / 2); return 0; }
+function midiToFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function rootMidi(name, oct) { return 12 * (oct + 1) + NOTE_NAMES.indexOf(name); }
+
+// generative rhythm (one style) -- re-rolls every call
+function genStep(style, step, env, density) {
+  const out = []; const s = step % STEPS_PER_BREATH; const sub = s % 4;
+  const d = density * (0.55 + 0.45 * env); const sw = 0.6 + 0.4 * env; const R = Math.random;
+  const add = (v, vel, off) => out.push([v, Math.max(0.05, Math.min(1, vel)), off || 0]);
+  if (style === "icaro") {
+    if (sub === 0) add("shaker", 0.55 * sw); else if (sub === 2) add("shaker", 0.4 * sw); else if (R() < 0.7) add("shaker", 0.22 * sw);
+    if (s === 0 || s === 16) add("frame", 0.42 * sw); if (sub === 2 && R() < 0.22 * d) add("conga", 0.3 * sw);
+  } else if (style === "aka") {
+    if (s % 6 === 0 && R() < 0.85) add("tek", 0.5 * sw); if (sub === 2 && R() < 0.6 * d) add("conga", 0.45 * sw);
+    if (s % 8 === 5 && R() < 0.7 * d) add("clap", 0.5 * sw); if (sub === 1 && R() < 0.5 * d) add("shaker", 0.3 * sw);
+    if ((s === 0 || s === 12) && R() < 0.85) add("frame", 0.55 * sw); if (s % 16 === 7 && R() < 0.4 * d) add("tek", 0.4 * sw);
+  } else if (style === "baka") {
+    if ([0, 6, 12, 20, 26].indexOf(s) >= 0 && R() < 0.8) add("frame", 0.5 * sw);
+    if ([2, 5, 7, 10, 13, 21, 29].indexOf(s) >= 0 && R() < 0.6 * d) add("clap", 0.45 * sw);
+    if (R() < 0.25 * d) add("shaker", 0.2 * sw); if (sub === 0 && R() < 0.14 * d) add("conga", 0.34 * sw);
+  } else if (style === "mbuti") {
+    if (s === 0 || s === 16) add("frame", 0.5 * sw); if ([7, 11, 19, 27].indexOf(s) >= 0 && R() < 0.5 * d) add("tek", 0.4 * sw);
+    if (R() < 0.12 * d) add("shaker", 0.18 * sw); if (s === 24 && R() < 0.3) add("conga", 0.32 * sw);
+  } else if (style === "trance") {
+    if (s % 2 === 0) add("frame", (s % 4 === 0 ? 0.62 : 0.48) * sw); add("shaker", (sub === 0 ? 0.38 : 0.24) * sw);
+    if (s === 0 && R() < 0.9) add("kick", 0.7 * sw); if (s === 16 && R() < 0.6) add("kick", 0.6 * sw);
+    if (s % 8 === 4 && R() < 0.4 * d) add("conga", 0.4 * sw);
+  } else if (style === "hiphop") {
+    const bar = s % 16; const SWING = 0.045;
+    if (bar === 0) add("kick", 0.92); if (bar === 10 && R() < 0.85) add("kick", 0.7); if (bar === 6 && R() < 0.25) add("kick", 0.5);
+    if (bar === 4 || bar === 12) add("snare", 0.85);
+    if (s % 2 === 0) add("shaker", (s % 4 === 0 ? 0.32 : 0.26) * (0.85 + 0.15 * env), (s % 4 === 2) ? SWING : 0);
+    else if (R() < 0.22 * density) add("shaker", 0.16, SWING);
+  }
+  return out;
+}
+
+// melodic generator -- mutates a small state object
+function noteFromDegree(scale, root, deg) { const oc = Math.floor(deg / scale.length); const i = ((deg % scale.length) + scale.length) % scale.length; return root + 12 * oc + scale[i]; }
+function newMelState(mel) { const r = rootMidi(mel.root, mel.oct); return { root: r, base: r, cur: r, degree: 0, dir: 1, arp: 0, n: 0 }; }
+function genMelody(s, mel) {
+  const sc = SCALES[mel.scale] || SCALES.major; let midi; const R = Math.random;
+  if (mel.pattern === "scale" || mel.pattern === "raga") {
+    midi = noteFromDegree(sc, s.root, s.degree);
+    if (mel.pattern === "raga" && R() < 0.28) { s.degree = 0; s.dir = 1; }
+    else { s.degree += s.dir; const top = sc.length * 2; if (s.degree >= top) { s.degree = top - 1; s.dir = -1; } if (s.degree < 0) { s.degree = 1; s.dir = 1; } }
+  } else if (mel.pattern === "arp") {
+    const arp = [0, 2, 4, sc.length, sc.length + 2]; midi = noteFromDegree(sc, s.root, arp[s.arp % arp.length]); s.arp++;
+  } else if (mel.pattern === "melody") {
+    const moves = [-2, -1, -1, 1, 1, 2, 0, 3, -3]; s.degree += moves[Math.floor(R() * moves.length)];
+    if (s.degree > sc.length * 2) s.degree = sc.length * 2 - 1; if (s.degree < -2) s.degree = 0;
+    midi = noteFromDegree(sc, s.root, s.degree);
+  } else if (mel.pattern === "fifths") {
+    const phrase = 4, triad = [0, 2, 4]; midi = noteFromDegree(sc, s.cur, triad[s.arp % triad.length]); s.arp++; s.n++;
+    if (s.n % phrase === 0) s.cur = s.base + ((s.cur - s.base + 7) % 12);
+  }
+  return midi;
+}
+
+// build a deterministic take for export
+function generatePerformance(bars, styleArr, density, mel, rhythmOn) {
+  const drums = [], notes = []; const total = bars * 16;
+  const melState = mel.on ? newMelState(mel) : null;
+  const intv = mel.on ? Math.max(1, Math.round(4 / mel.rate)) : 1;
+  for (let step = 0; step < total; step++) {
+    const env = breathEnvForStep(step);
+    if (rhythmOn) {
+      const merged = {};
+      styleArr.forEach((st) => genStep(st, step, env, density).forEach(([v, vel, off]) => { if (!merged[v] || vel > merged[v].vel) merged[v] = { vel, off: off || 0 }; }));
+      Object.keys(merged).forEach((v) => drums.push({ step, voice: v, vel: merged[v].vel, off: merged[v].off }));
+    }
+    if (mel.on && step % intv === 0) { const m = genMelody(melState, mel); if (m != null) notes.push({ step, midi: m, vel: 0.5, durSteps: Math.max(1, intv - 1) }); }
+  }
+  return { drums, notes };
+}
+
+// --- synth builders (used live AND offline) ---
+function makeKit(dest) {
+  return {
+    kick: new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 6, envelope: { attack: 0.001, decay: 0.32, sustain: 0, release: 0.1 } }).connect(dest),
+    frame: new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4, envelope: { attack: 0.002, decay: 0.34, sustain: 0, release: 0.1 } }).connect(dest),
+    conga: new Tone.MembraneSynth({ pitchDecay: 0.018, octaves: 3, envelope: { attack: 0.001, decay: 0.22, sustain: 0, release: 0.05 } }).connect(dest),
+    snare: new Tone.NoiseSynth({ noise: { type: "white" }, envelope: { attack: 0.001, decay: 0.13, sustain: 0 } }).connect(dest),
+    clap: new Tone.NoiseSynth({ noise: { type: "pink" }, envelope: { attack: 0.002, decay: 0.16, sustain: 0 } }).connect((() => { const f = new Tone.Filter(1500, "bandpass"); f.connect(dest); return f; })()),
+    shaker: new Tone.NoiseSynth({ noise: { type: "white" }, envelope: { attack: 0.001, decay: 0.05, sustain: 0 } }).connect((() => { const f = new Tone.Filter(6500, "highpass"); f.connect(dest); return f; })()),
+    tek: new Tone.MembraneSynth({ pitchDecay: 0.008, octaves: 2, envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.02 } }).connect(dest),
+  };
+}
+function triggerDrum(k, v, vel, time) {
+  try {
+    if (v === "kick") k.kick.triggerAttackRelease("C1", "8n", time, vel);
+    else if (v === "frame") k.frame.triggerAttackRelease("G1", "8n", time, vel);
+    else if (v === "conga") k.conga.triggerAttackRelease("A2", "16n", time, vel);
+    else if (v === "snare") k.snare.triggerAttackRelease("16n", time, vel);
+    else if (v === "clap") k.clap.triggerAttackRelease("16n", time, vel);
+    else if (v === "shaker") k.shaker.triggerAttackRelease("32n", time, vel);
+    else if (v === "tek") k.tek.triggerAttackRelease("C4", "32n", time, vel);
+  } catch (e) {}
+}
+// Melody voice = a POLYPHONIC pool so fast / overlapping notes ring out
+// instead of a monophonic synth hard-cutting the previous note (that hard
+// cut was the clicking / "breaking up"). maxPolyphony caps the pool so a
+// dense passage can't spawn unbounded voices. triggerAttackRelease's
+// (freq, dur, time, vel) signature is identical on PolySynth, so callers
+// are unchanged. PluckSynth is plucked-string (already decays fast) and
+// PolySynth-wraps cleanly; the rest wrap their mono voice.
+function makeMelodyVoice(dest, kind) {
+  let Voice, opts;
+  if (kind === "fm") { Voice = Tone.FMSynth; opts = { harmonicity: 2.5, modulationIndex: 6, oscillator: { type: "sine" }, envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 0.7 }, modulationEnvelope: { attack: 0.02, decay: 0.2, sustain: 0.1, release: 0.5 }, volume: -10 }; }
+  else if (kind === "pluck") { Voice = Tone.PluckSynth; opts = { attackNoise: 1, dampening: 3500, resonance: 0.85 }; }
+  else if (kind === "saw") { Voice = Tone.MonoSynth; opts = { oscillator: { type: "sawtooth" }, filter: { Q: 2, type: "lowpass" }, filterEnvelope: { attack: 0.05, decay: 0.3, sustain: 0.4, baseFrequency: 300, octaves: 3 }, envelope: { attack: 0.04, decay: 0.2, sustain: 0.5, release: 0.8 }, volume: -14 }; }
+  else if (kind === "square") { Voice = Tone.Synth; opts = { oscillator: { type: "square" }, envelope: { attack: 0.01, decay: 0.18, sustain: 0.25, release: 0.5 }, volume: -18 }; }
+  else if (kind === "am") { Voice = Tone.AMSynth; opts = { harmonicity: 3, oscillator: { type: "sine" }, envelope: { attack: 0.02, decay: 0.25, sustain: 0.3, release: 0.8 }, volume: -10 }; }
+  else { Voice = Tone.Synth; opts = { oscillator: { type: "triangle" }, envelope: { attack: 0.02, decay: 0.2, sustain: 0.3, release: 0.5 }, volume: -8 }; }
+  let v;
+  try { v = new Tone.PolySynth({ maxPolyphony: 8, voice: Voice, options: opts }); }
+  catch (e) { v = new Voice(opts); } // fallback: some voices (older Tone) reject PolySynth wrap
+  return v.connect(dest);
+}
+
+// --- file encoders ---
+function vlq(n) { const b = [n & 0x7f]; n >>= 7; while (n > 0) { b.unshift((n & 0x7f) | 0x80); n >>= 7; } return b; }
+function buildMidi(perf, bpm, ppq) {
+  ppq = ppq || 480; const tps = ppq / 4; const tickPerSec = ppq * bpm / 60; const uspq = Math.round(60000000 / bpm);
+  const raw = [];
+  perf.drums.forEach((d) => { const t = Math.round(d.step * tps + (d.off || 0) * tickPerSec); const note = GM_DRUM[d.voice] || 37; raw.push({ tick: t, o: 1, ch: 9, note, vel: Math.round(d.vel * 110) + 10 }); raw.push({ tick: t + Math.round(tps * 0.5), o: 0, ch: 9, note, vel: 0 }); });
+  perf.notes.forEach((n) => { const t = Math.round(n.step * tps); const dur = Math.round(n.durSteps * tps); raw.push({ tick: t, o: 1, ch: 0, note: n.midi, vel: Math.round(n.vel * 100) + 15 }); raw.push({ tick: t + dur, o: 0, ch: 0, note: n.midi, vel: 0 }); });
+  raw.sort((a, b) => a.tick - b.tick || a.o - b.o);
+  const track = [0x00, 0xff, 0x51, 0x03, (uspq >> 16) & 0xff, (uspq >> 8) & 0xff, uspq & 0xff, 0x00, 0xc0, 88];
+  let last = 0;
+  for (const e of raw) { const dt = Math.max(0, e.tick - last); last = e.tick; vlq(dt).forEach((b) => track.push(b)); track.push((e.o ? 0x90 : 0x80) | e.ch, e.note & 0x7f, e.vel & 0x7f); }
+  track.push(0x00, 0xff, 0x2f, 0x00);
+  const tl = track.length;
+  const header = [0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, (ppq >> 8) & 0xff, ppq & 0xff];
+  const th = [0x4d, 0x54, 0x72, 0x6b, (tl >> 24) & 0xff, (tl >> 16) & 0xff, (tl >> 8) & 0xff, tl & 0xff];
+  return new Uint8Array(header.concat(th, track));
+}
+function audioBufferToWav(ab) {
+  const nc = ab.numberOfChannels, sr = ab.sampleRate, len = ab.length, ba = nc * 2, dl = len * ba;
+  const buf = new ArrayBuffer(44 + dl), v = new DataView(buf);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, "RIFF"); v.setUint32(4, 36 + dl, true); ws(8, "WAVE"); ws(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, nc, true); v.setUint32(24, sr, true); v.setUint32(28, sr * ba, true); v.setUint16(32, ba, true); v.setUint16(34, 16, true); ws(36, "data"); v.setUint32(40, dl, true);
+  const ch = []; for (let c = 0; c < nc; c++) ch.push(ab.getChannelData(c));
+  let off = 44; for (let i = 0; i < len; i++) { for (let c = 0; c < nc; c++) { let s = Math.max(-1, Math.min(1, ch[c][i])); v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true); off += 2; } }
+  return buf;
+}
+function downloadBlob(blob, name) { const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500); }
+
+// --- Web MIDI (live sync to external devices; standalone-page only) ---
+// 24 PPQN clock => 6 clock pulses per 16th step. Notes mirrored to the port.
+async function requestMidi() {
+  if (typeof navigator === "undefined" || !navigator.requestMIDIAccess) return { ok: false, reason: "Web MIDI API not present (sandboxed iframe or unsupported browser)" };
+  try { const access = await navigator.requestMIDIAccess({ sysex: false }); const outs = []; access.outputs.forEach((o) => outs.push(o)); return { ok: true, access, outs }; }
+  catch (e) { return { ok: false, reason: "MIDI access denied: " + (e && e.message ? e.message : String(e)) }; }
+}
+function midiSend(port, bytes, time) { if (port) { try { port.send(bytes, time); } catch (e) {} } }
+const MIDI_CLOCK = 0xf8, MIDI_START = 0xfa, MIDI_STOP = 0xfc;
+
+// --- AI compose: ask the model for a strict-JSON phrase, parse defensively ---
+async function aiCompose(ctx) {
+  const sys = "You are a music composition engine. Output ONLY raw JSON, no prose, no markdown fences. Schema: {\"notes\":[{\"step\":int,\"midi\":int,\"dur\":int,\"vel\":float}],\"drums\":[{\"step\":int,\"voice\":string,\"vel\":float}]}. step is a 16th-note index 0..127 (8 bars). midi 36-96. dur in 16th steps >=1. vel 0..1. voice in [kick,snare,clap,frame,conga,shaker,tek]. Stay diatonic to the given scale/root. Make it musical and expressive of the mood; phrase it, do not fill every step.";
+  const usr = `Compose an 8-bar phrase. Root ${ctx.root}, scale ${ctx.scale}, pattern feel ${ctx.pattern}, tempo ${ctx.bpm} BPM. Active rhythm styles: ${ctx.styles.join(", ") || "none"}. Mood: ${ctx.mood || "meditative, breathing, unhurried"}. Melody should sit in octaves ${ctx.oct}-${ctx.oct + 2}. Return JSON only.`;
+  const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": (window.__GHATIKA_KEY__||""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: sys, messages: [{ role: "user", content: usr }] }) });
+  const data = await res.json();
+  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const clean = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const first = clean.indexOf("{"), last = clean.lastIndexOf("}");
+  const json = JSON.parse(first >= 0 ? clean.slice(first, last + 1) : clean);
+  const notes = (json.notes || []).filter((n) => Number.isFinite(n.midi) && Number.isFinite(n.step)).map((n) => ({ step: Math.max(0, Math.min(127, n.step | 0)), midi: Math.max(24, Math.min(108, n.midi | 0)), durSteps: Math.max(1, (n.dur | 0) || 2), vel: Math.max(0.05, Math.min(1, n.vel || 0.5)) }));
+  const okv = { kick: 1, snare: 1, clap: 1, frame: 1, conga: 1, shaker: 1, tek: 1 };
+  const drums = (json.drums || []).filter((d) => okv[d.voice] && Number.isFinite(d.step)).map((d) => ({ step: Math.max(0, Math.min(127, d.step | 0)), voice: d.voice, vel: Math.max(0.05, Math.min(1, d.vel || 0.6)), off: 0 }));
+  return { notes, drums };
+}
+
+// --- AI DJ director: ask for control moves + content for the NEXT window of
+// measures (look-ahead). Returns per-measure plan entries. Defensive parse:
+// anything malformed is dropped, never thrown into the audio thread. ---
+const DJ_STYLES = ["icaro", "aka", "baka", "mbuti", "trance", "hiphop"];
+const DJ_SCALES = ["major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "locrian", "pentMajor", "pentMinor", "blues", "bhairav", "yaman", "bhairavi", "kafi"];
+const DJ_INSTR = ["triangle", "fm", "pluck", "saw", "square", "am"];
+async function aiDirect(ctx) {
+  const sys = "You are a live AI DJ performing an evolving meditative-electronic set. You think a few measures AHEAD of what is currently playing and write the near future. Output ONLY raw JSON, no prose, no fences. Schema: {\"measures\":[{\"m\":int,\"controls\":{\"styles\":[string],\"density\":float,\"scale\":string,\"root\":string,\"instrument\":string,\"bpm\":int,\"fxFilter\":float,\"fxDelay\":float,\"fxReverb\":float,\"fxDrive\":float},\"notes\":[{\"step\":int,\"midi\":int,\"dur\":int,\"vel\":float}],\"drums\":[{\"step\":int,\"voice\":string,\"vel\":float}]}],\"intent\":string}. RULES: m = absolute measure index (use the ones requested). step = 0..15 WITHIN that measure. controls is sparse: include ONLY keys you are changing this measure; omit the rest to leave them as-is. styles subset of [icaro,aka,baka,mbuti,trance,hiphop]. scale in [major,minor,dorian,phrygian,lydian,mixolydian,locrian,pentMajor,pentMinor,blues,bhairav,yaman,bhairavi,kafi]. root like 'A' or 'C#'. instrument in [triangle,fm,pluck,saw,square,am]. bpm 56-132. fx values 0..1. midi 36-96. voice in [kick,snare,clap,frame,conga,shaker,tek]. Move gradually and musically; transitions land on measure boundaries. intent = one short phrase describing what you are doing.";
+  const pinNote = ctx.pinned.length ? `PINNED controls you must NOT change (the human locked them): ${ctx.pinned.join(", ")}. Omit them from every controls object.` : "No pins; you may move any control.";
+  const scoreNote = ctx.mode === "journey"
+    ? `Director mode: FOLLOW THE BREATH JOURNEY. The current entrainment segment is "${ctx.segLabel}" at ${ctx.beatHz}Hz (${ctx.bandName}). Match the music's energy to this segment: lower bands = sparser/slower/deeper, higher bands = busier/brighter. The breath score is your conductor.`
+    : `Director mode: AUTONOMOUS ARC. Brief: "${ctx.brief}". You own the arc; evolve it with taste over the whole session (elapsed ${ctx.elapsedMin} min).`;
+  const usr = `${scoreNote}\n${pinNote}\nCurrent state: styles[${ctx.styles.join(",") || "none"}] density ${ctx.density} scale ${ctx.scale} root ${ctx.root} instrument ${ctx.instrument} bpm ${ctx.bpm} fx(filter ${ctx.fxFilter}, delay ${ctx.fxDelay}, reverb ${ctx.fxReverb}, drive ${ctx.fxDrive}). Recent intents: ${ctx.history.join(" | ") || "(opening)"}. Write measures ${ctx.want.join(", ")}. Return JSON only.`;
+  const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": (window.__GHATIKA_KEY__||""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1400, system: sys, messages: [{ role: "user", content: usr }] }) });
+  const data = await res.json();
+  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const clean = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const f = clean.indexOf("{"), l = clean.lastIndexOf("}");
+  const json = JSON.parse(f >= 0 ? clean.slice(f, l + 1) : clean);
+  const okv = { kick: 1, snare: 1, clap: 1, frame: 1, conga: 1, shaker: 1, tek: 1 };
+  const out = [];
+  (json.measures || []).forEach((mm) => {
+    if (!Number.isFinite(mm.m)) return;
+    const c = mm.controls || {}; const controls = {};
+    if (Array.isArray(c.styles)) { const s = c.styles.filter((x) => DJ_STYLES.indexOf(x) >= 0); if (s.length) controls.styles = s; }
+    if (Number.isFinite(c.density)) controls.density = Math.max(0.1, Math.min(1, c.density));
+    if (typeof c.scale === "string" && DJ_SCALES.indexOf(c.scale) >= 0) controls.scale = c.scale;
+    if (typeof c.root === "string" && /^[A-G]#?$/.test(c.root)) controls.root = c.root;
+    if (typeof c.instrument === "string" && DJ_INSTR.indexOf(c.instrument) >= 0) controls.instrument = c.instrument;
+    if (Number.isFinite(c.bpm)) controls.bpm = Math.max(56, Math.min(132, c.bpm | 0));
+    ["fxFilter", "fxDelay", "fxReverb", "fxDrive"].forEach((k) => { if (Number.isFinite(c[k])) controls[k] = Math.max(0, Math.min(1, c[k])); });
+    const notes = (mm.notes || []).filter((n) => Number.isFinite(n.midi) && Number.isFinite(n.step)).map((n) => ({ step: Math.max(0, Math.min(15, n.step | 0)), midi: Math.max(24, Math.min(108, n.midi | 0)), durSteps: Math.max(1, (n.dur | 0) || 2), vel: Math.max(0.05, Math.min(1, n.vel || 0.5)) }));
+    const drums = (mm.drums || []).filter((d) => okv[d.voice] && Number.isFinite(d.step)).map((d) => ({ step: Math.max(0, Math.min(15, d.step | 0)), voice: d.voice, vel: Math.max(0.05, Math.min(1, d.vel || 0.6)) }));
+    out.push({ m: mm.m | 0, controls, notes, drums });
+  });
+  return { measures: out, intent: typeof json.intent === "string" ? json.intent.slice(0, 80) : "" };
+}
+
+function GhatikaV6() {
+  const [mode, setMode] = useState("binaural");
+  const [carrier, setCarrier] = useState(200);
+  const [vol, setVol] = useState(0.4);
+  const [noiseOn, setNoiseOn] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [navMode, setNavMode] = useState("journey");
+  const [manualBand, setManualBand] = useState("theta");
+  const [minutes, setMinutes] = useState(12);
+  const [bpm, setBpm] = useState(96);
+  const [rhythmOn, setRhythmOn] = useState(false);
+  const [styles, setStyles] = useState(() => new Set(["hiphop"]));
+  const [density, setDensity] = useState(0.6);
+  const [drumVol, setDrumVol] = useState(0.5);
+  // melody
+  const [melOn, setMelOn] = useState(false);
+  const [melScale, setMelScale] = useState("pentMinor");
+  const [melPattern, setMelPattern] = useState("melody");
+  const [melRoot, setMelRoot] = useState("A");
+  const [melOct, setMelOct] = useState(3);
+  const [melRate, setMelRate] = useState(2);
+  const [melVol, setMelVol] = useState(0.5);
+  const [instrument, setInstrument] = useState("triangle");
+  const [rendering, setRendering] = useState(false);
+  // effects rack (wet amounts 0..1; filter cutoff in Hz)
+  const [fxFilter, setFxFilter] = useState(0);      // 0 = open (20k), 1 = closed (300)
+  const [fxDrive, setFxDrive] = useState(0);
+  const [fxDelay, setFxDelay] = useState(0);
+  const [fxReverb, setFxReverb] = useState(0.25);
+  // AI compose
+  const [mood, setMood] = useState("meditative, breathing, unhurried");
+  const [composing, setComposing] = useState(false);
+  const [aiStatus, setAiStatus] = useState("");
+  const [aiActive, setAiActive] = useState(false);
+  // live MIDI
+  const [midiReady, setMidiReady] = useState(false);
+  const [midiOuts, setMidiOuts] = useState([]);
+  const [midiSel, setMidiSel] = useState("");
+  const [midiSend2Dev, setMidiSend2Dev] = useState(false);
+  const [midiMsg, setMidiMsg] = useState("");
+  // AI DJ director
+  const [djOn, setDjOn] = useState(false);
+  const [djMode, setDjMode] = useState("arc");        // "arc" (autonomous) | "journey" (follow breath score)
+  const [djBrief, setDjBrief] = useState("a slow build from stillness to a gentle peak, then dissolve");
+  const [djStatus, setDjStatus] = useState("");
+  const [djHorizon, setDjHorizon] = useState(4);       // current look-ahead in measures (adaptive 4->2)
+  const [djLog, setDjLog] = useState([]);              // recent director moves, for the readout
+  const PINNABLE = ["styles", "density", "scale", "root", "instrument", "tempo", "fx", "melody"];
+  const [pins, setPins] = useState(() => new Set());   // which controls the AI may NOT touch
+
+  const [disp, setDisp] = useState({ beat: 10, seg: "Arrive", phase: "Inhale", elapsed: 0, segIdx: 0, note: "" });
+
+  const masterRef = useRef(null), breathGainRef = useRef(null), noiseChainRef = useRef(null), srcRef = useRef(null);
+  const kitRef = useRef(null), drumBusRef = useRef(null), melVoiceRef = useRef(null), melBusRef = useRef(null);
+  const fxRef = useRef(null), preFxRef = useRef(null);
+  const transportRef = useRef(null), repeatIdRef = useRef(null), stepCountRef = useRef(0);
+  const modeRef = useRef(mode), carrierRef = useRef(carrier), navRef = useRef({ navMode, manualBand, minutes }), bpmRef = useRef(bpm);
+  const playingRef = useRef(false), rhythmOnRef = useRef(false), stylesRef = useRef(styles), densityRef = useRef(density);
+  const melOnRef = useRef(false), melCfgRef = useRef({ scale: melScale, pattern: melPattern, root: melRoot, oct: melOct, rate: melRate, on: melOn }), melStateRef = useRef(null), lastNoteRef = useRef("");
+  const instrumentRef = useRef(instrument);
+  const aiRef = useRef({ active: false, notes: [], drums: [] }); // AI take, indexed by step
+  const midiRef = useRef({ access: null, port: null, on: false });
+  const midiNotesOffRef = useRef([]); // pending note-offs: {step, midi, ch}
+  const startRef = useRef(0), rafRef = useRef(0), lastSegRef = useRef(-1), dispThrottle = useRef(0);
+  const orbRef = useRef(null), orbGlowRef = useRef(null), dotsRef = useRef([]), playheadRef = useRef(null);
+  const lampElRef = useRef([]), lampValRef = useRef([0, 0, 0, 0, 0, 0, 0]);
+  // director refs: plan buffer keyed by measure index; the scheduler reads from it
+  const djRef = useRef({ on: false, mode: "arc", brief: "", horizon: 4, busy: false, lastMeasure: -1, lastReqMeasure: -1, fails: 0, oks: 0, history: [] });
+  const planRef = useRef({}); // measureIndex -> { notes:[{step,midi,dur,vel}], drums:[{step,voice,vel}], controls:{...} }
+  const pinsRef = useRef(pins);
+  const measureRef = useRef(0);
+  const djApplyRef = useRef(null);
+  const requestAheadRef = useRef(null);
+  const fxFilterRef = useRef(fxFilter), fxDelayRef = useRef(fxDelay), fxReverbRef = useRef(fxReverb), fxDriveRef = useRef(fxDrive);
+  const lastSegLabelRef = useRef("Arrive"), lastBeatRef = useRef(10);
+
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { carrierRef.current = carrier; }, [carrier]);
+  useEffect(() => { navRef.current = { navMode, manualBand, minutes }; }, [navMode, manualBand, minutes]);
+  useEffect(() => { playingRef.current = playing; }, [playing]);
+  useEffect(() => { rhythmOnRef.current = rhythmOn; }, [rhythmOn]);
+  useEffect(() => { stylesRef.current = styles; }, [styles]);
+  useEffect(() => { densityRef.current = density; }, [density]);
+  useEffect(() => { melOnRef.current = melOn; }, [melOn]);
+  useEffect(() => { instrumentRef.current = instrument; rebuildMelodyVoice(); /* eslint-disable-next-line */ }, [instrument]);
+  useEffect(() => { aiRef.current.active = aiActive; }, [aiActive]);
+  useEffect(() => { djRef.current.on = djOn; if (!djOn) { setDjStatus(""); } }, [djOn]);
+  useEffect(() => { djRef.current.mode = djMode; }, [djMode]);
+  useEffect(() => { djRef.current.brief = djBrief; }, [djBrief]);
+  useEffect(() => { djRef.current.horizon = djHorizon; }, [djHorizon]);
+  useEffect(() => { pinsRef.current = pins; }, [pins]);
+  useEffect(() => { midiRef.current.on = midiSend2Dev; }, [midiSend2Dev]);
+  useEffect(() => { const p = midiOuts.find((o) => o.id === midiSel); midiRef.current.port = p || null; }, [midiSel, midiOuts]);
+  useEffect(() => { if (drumBusRef.current) drumBusRef.current.gain.rampTo(drumVol, 0.2); }, [drumVol]);
+  useEffect(() => { if (melBusRef.current) melBusRef.current.gain.rampTo(melVol, 0.2); }, [melVol]);
+  useEffect(() => { applyFx(); fxFilterRef.current = fxFilter; fxDelayRef.current = fxDelay; fxReverbRef.current = fxReverb; fxDriveRef.current = fxDrive; /* eslint-disable-next-line */ }, [fxFilter, fxDrive, fxDelay, fxReverb]);
+  useEffect(() => { bpmRef.current = bpm; if (transportRef.current) transportRef.current.bpm.rampTo(bpm, 0.3); }, [bpm]);
+  useEffect(() => {
+    const cfg = { scale: melScale, pattern: melPattern, root: melRoot, oct: melOct, rate: melRate, on: melOn };
+    melCfgRef.current = cfg; melStateRef.current = newMelState(cfg);
+  }, [melScale, melPattern, melRoot, melOct, melRate, melOn]);
+
+  const totalWeight = JOURNEY.reduce((s, j) => s + j.weight, 0);
+  const segBounds = (() => { const out = []; let acc = 0; for (const j of JOURNEY) { const dur = (j.weight / totalWeight) * (minutes * 60); out.push({ ...j, start: acc, end: acc + dur }); acc += dur; } return out; })();
+
+  const updateBeat = useCallback((hz, ramp = 0.4) => { const s = srcRef.current; if (!s) return; const c = carrierRef.current; if (modeRef.current === "isochronic") s.lfo.frequency.rampTo(Math.max(0.1, hz), ramp); else { s.oL.frequency.rampTo(c - hz / 2, ramp); s.oR.frequency.rampTo(c + hz / 2, ramp); } }, []);
+  const disposeSource = useCallback(() => { const s = srcRef.current; if (!s) return; Object.values(s).forEach((n) => { try { n.dispose && n.dispose(); } catch (e) {} }); srcRef.current = null; }, []);
+  const buildSource = useCallback((m, beatHz) => {
+    disposeSource(); const c = carrierRef.current; const sg = new Tone.Gain(0).connect(breathGainRef.current); sg.gain.rampTo(1.0, 1.5); let src;
+    if (m === "isochronic") { const osc = new Tone.Oscillator(c, "sine"); const gate = new Tone.Gain(0); const lfo = new Tone.LFO({ frequency: Math.max(0.1, beatHz), min: 0, max: 1, type: "sine" }); osc.connect(gate); gate.connect(sg); lfo.connect(gate.gain); osc.start(); lfo.start(); src = { osc, gate, lfo, sg }; }
+    else { const oL = new Tone.Oscillator(c - beatHz / 2, "sine"); const oR = new Tone.Oscillator(c + beatHz / 2, "sine"); if (m === "binaural") { const pL = new Tone.Panner(-1), pR = new Tone.Panner(1); oL.connect(pL); pL.connect(sg); oR.connect(pR); pR.connect(sg); src = { oL, oR, pL, pR, sg }; } else { oL.connect(sg); oR.connect(sg); src = { oL, oR, sg }; } oL.start(); oR.start(); }
+    srcRef.current = src;
+  }, [disposeSource]);
+
+  const maybeMidiClock = useCallback((time) => {
+    const m = midiRef.current; if (!m.on || !m.port) return;
+    const spb = 60 / bpmRef.current; const stepSec = spb / 4; const pulse = stepSec / 6; // 24 PPQN
+    const base = (Tone.now ? Tone.now() : 0); const lead = (time - base) * 1000; const now = performance.now();
+    for (let i = 0; i < 6; i++) midiSend(m.port, [MIDI_CLOCK], now + lead + i * pulse * 1000);
+  }, []);
+  const maybeMidiNote = useCallback((midi, vel, time, durSec) => {
+    const m = midiRef.current; if (!m.on || !m.port) return;
+    const base = (Tone.now ? Tone.now() : 0); const now = performance.now(); const at = now + (time - base) * 1000;
+    const v = Math.max(1, Math.min(127, Math.round(vel * 110) + 12));
+    midiSend(m.port, [0x90, midi & 0x7f, v], at);
+    midiSend(m.port, [0x80, midi & 0x7f, 0], at + Math.max(40, durSec * 1000));
+  }, []);
+  const connectMidi = useCallback(async () => {
+    const r = await requestMidi();
+    if (!r.ok) { setMidiReady(false); setMidiMsg(r.reason); setMidiOuts([]); return; }
+    midiRef.current.access = r.access; setMidiReady(true);
+    const list = r.outs.map((o) => ({ id: o.id, name: o.name || o.id, port: o })); setMidiOuts(list);
+    if (list.length) { setMidiSel(list[0].id); setMidiMsg(`${list.length} output(s) found`); }
+    else setMidiMsg("MIDI available, but no output devices are connected");
+    r.access.onstatechange = () => { const outs = []; r.access.outputs.forEach((o) => outs.push({ id: o.id, name: o.name || o.id, port: o })); setMidiOuts(outs); };
+  }, []);
+
+  const applyFx = useCallback(() => {
+    const fx = fxRef.current; if (!fx) return;
+    const cutoff = 20000 * Math.pow(300 / 20000, fxFilter); // 0->20k, 1->300
+    try { fx.filter.frequency.rampTo(cutoff, 0.15); } catch (e) {}
+    try { fx.driveMix.fade.rampTo(fxDrive, 0.15); } catch (e) {}
+    try { fx.delaySend.gain.rampTo(fxDelay, 0.15); } catch (e) {}
+    try { fx.reverbSend.gain.rampTo(fxReverb, 0.15); } catch (e) {}
+  }, [fxFilter, fxDrive, fxDelay, fxReverb]);
+
+  const rebuildMelodyVoice = useCallback(() => {
+    if (!melBusRef.current) return;
+    const old = melVoiceRef.current;
+    melVoiceRef.current = makeMelodyVoice(melBusRef.current, instrumentRef.current);
+    if (old) setTimeout(() => { try { old.dispose(); } catch (e) {} }, 200);
+  }, []);
+
+  const ensureGraph = useCallback(async () => {
+    if (masterRef.current) return; await Tone.start();
+    const master = new Tone.Gain(vol).toDestination(); const breathGain = new Tone.Gain(0.7).connect(master);
+    masterRef.current = master; breathGainRef.current = breathGain;
+    // Effects on the MUSIC bus (drums + melody). Drone/wave bypass FX.
+    // CRITICAL: delay & reverb are PARALLEL SENDS, not inline. Tone.Reverb
+    // is async (its impulse response resolves later); routing the dry bus
+    // *through* it mutes everything until ready. Sends keep dry audible
+    // always; the wet send fades in when the IR is ready.
+    const filter = new Tone.Filter(20000, "lowpass");
+    const drive = new Tone.Distortion({ distortion: 0.4, wet: 1 });
+    const driveMix = new Tone.CrossFade(fxDrive);   // 0 = clean, 1 = driven
+    const delaySend = new Tone.Gain(fxDelay);
+    const reverbSend = new Tone.Gain(fxReverb);
+    const delay = new Tone.PingPongDelay({ delayTime: "8n", feedback: 0.32, wet: 1 });
+    const reverb = new Tone.Reverb({ decay: 4, preDelay: 0.02, wet: 1 });
+    const musicBus = new Tone.Gain(1);
+    musicBus.connect(filter);
+    filter.connect(driveMix.a);
+    filter.connect(drive); drive.connect(driveMix.b);
+    driveMix.connect(master);
+    filter.connect(delaySend); delaySend.connect(delay); delay.connect(master);
+    filter.connect(reverbSend); reverbSend.connect(reverb); reverb.connect(master);
+    fxRef.current = { filter, drive, driveMix, delay, reverb, delaySend, reverbSend }; preFxRef.current = musicBus;
+    const noise = new Tone.Noise("pink"); const filt = new Tone.Filter(700, "lowpass"); const ng = new Tone.Gain(0).connect(breathGain); noise.connect(filt); filt.connect(ng); noise.start(); noiseChainRef.current = { noise, filt, ng };
+    const drumBus = new Tone.Gain(drumVol).connect(musicBus); kitRef.current = makeKit(drumBus); drumBusRef.current = drumBus;
+    const melBus = new Tone.Gain(melVol).connect(musicBus); melVoiceRef.current = makeMelodyVoice(melBus, instrumentRef.current); melBusRef.current = melBus;
+    const T = Tone.getTransport ? Tone.getTransport() : Tone.Transport; transportRef.current = T; T.bpm.value = bpmRef.current;
+    applyFx();
+    const fire = (v, vel, time) => { const k = kitRef.current; if (!k) return; triggerDrum(k, v, vel, time); const idx = VOICES.indexOf(v); if (idx >= 0) lampValRef.current[idx] = Math.min(1, 0.45 + vel); };
+    const playNote = (m, durSec, time, vel) => { if (melVoiceRef.current) { try { melVoiceRef.current.triggerAttackRelease(midiToFreq(m), durSec, time, vel); } catch (e) {} } lastNoteRef.current = NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1); maybeMidiNote(m, vel, time, durSec); };
+    repeatIdRef.current = T.scheduleRepeat((time) => {
+      const step = stepCountRef.current; stepCountRef.current++;
+      if (!playingRef.current) return;
+      maybeMidiClock(time);
+      const env = breathEnvForStep(step);
+      const spb = 60 / bpmRef.current;
+      if (djRef.current.on) {
+        const measure = Math.floor(step / 16);
+        const sIn = step % 16;
+        if (sIn === 0 && measure !== measureRef.current) { measureRef.current = measure; if (djApplyRef.current) djApplyRef.current(measure); }
+        const plan = planRef.current[measure];
+        if (plan) {
+          plan.drums.forEach((d) => { if (d.step === sIn) fire(d.voice, d.vel, time); });
+          plan.notes.forEach((n) => { if (n.step === sIn) playNote(n.midi, Math.max(0.08, n.durSteps * spb / 4), time, n.vel); });
+        } else {
+          // no plan yet for this measure -> fall back to the live generative engine so sound never drops
+          if (rhythmOnRef.current) { const merged = {}; stylesRef.current.forEach((st) => genStep(st, step, env, densityRef.current).forEach(([v, vel, off]) => { if (!merged[v] || vel > merged[v].vel) merged[v] = { vel, off: off || 0 }; })); Object.keys(merged).forEach((v) => fire(v, merged[v].vel, time + merged[v].off)); }
+          if (melOnRef.current && melVoiceRef.current) { const mel = melCfgRef.current; const intv = Math.max(1, Math.round(4 / mel.rate)); if (step % intv === 0) { if (!melStateRef.current) melStateRef.current = newMelState(mel); const m = genMelody(melStateRef.current, mel); if (m != null) playNote(m, Math.max(0.08, (intv - 0.2) * spb / 4), time, 0.5 * (0.7 + 0.3 * env)); } }
+        }
+      } else if (aiRef.current.active) {
+        // single AI take, looped over its 128-step span
+        const ai = aiRef.current; const s = step % 128;
+        ai.drums.forEach((d) => { if (d.step === s) fire(d.voice, d.vel, time); });
+        ai.notes.forEach((n) => { if (n.step === s) playNote(n.midi, Math.max(0.08, n.durSteps * spb / 4), time, n.vel); });
+      } else {
+        if (rhythmOnRef.current) { const merged = {}; stylesRef.current.forEach((st) => genStep(st, step, env, densityRef.current).forEach(([v, vel, off]) => { if (!merged[v] || vel > merged[v].vel) merged[v] = { vel, off: off || 0 }; })); Object.keys(merged).forEach((v) => fire(v, merged[v].vel, time + merged[v].off)); }
+        if (melOnRef.current && melVoiceRef.current) { const mel = melCfgRef.current; const intv = Math.max(1, Math.round(4 / mel.rate)); if (step % intv === 0) { if (!melStateRef.current) melStateRef.current = newMelState(mel); const m = genMelody(melStateRef.current, mel); if (m != null) playNote(m, Math.max(0.08, (intv - 0.2) * spb / 4), time, 0.5 * (0.7 + 0.3 * env)); } }
+      }
+    }, "16n");
+  }, [vol, drumVol, melVol, fxDrive, fxDelay, fxReverb, applyFx]);
+
+  useEffect(() => { if (masterRef.current) masterRef.current.gain.rampTo(vol, 0.2); }, [vol]);
+  useEffect(() => { const nc = noiseChainRef.current; if (nc) nc.ng.gain.rampTo(noiseOn && playing ? 0.1 : 0.0, 0.6); }, [noiseOn, playing]);
+  useEffect(() => { if (playing && masterRef.current) buildSource(mode, disp.beat); /* eslint-disable-next-line */ }, [mode]);
+  useEffect(() => { if (!playing || !srcRef.current) return; if (modeRef.current !== "isochronic") { srcRef.current.oL.frequency.rampTo(carrier - disp.beat / 2, 0.3); srcRef.current.oR.frequency.rampTo(carrier + disp.beat / 2, 0.3); } else srcRef.current.osc.frequency.rampTo(carrier, 0.3); /* eslint-disable-next-line */ }, [carrier]);
+  useEffect(() => { if (playing && navMode === "manual") updateBeat(BANDS.find((b) => b.key === manualBand)?.hz || 6, 1.5); /* eslint-disable-next-line */ }, [manualBand, navMode]);
+
+  const start = useCallback(async () => {
+    await ensureGraph();
+    const initHz = navRef.current.navMode === "journey" ? JOURNEY[0].hz : (BANDS.find((b) => b.key === navRef.current.manualBand)?.hz || 6);
+    buildSource(modeRef.current, initHz);
+    melStateRef.current = newMelState(melCfgRef.current);
+    if (noiseChainRef.current) noiseChainRef.current.ng.gain.rampTo(noiseOn ? 0.1 : 0.0, 1.2);
+    startRef.current = performance.now() / 1000; lastSegRef.current = -1; stepCountRef.current = 0;
+    measureRef.current = -1; planRef.current = {}; djRef.current.history = []; djRef.current.oks = 0; djRef.current.fails = 0;
+    if (djRef.current.on && requestAheadRef.current) { djRef.current.horizon = djHorizon; requestAheadRef.current(0); } // prime the near future before the playhead arrives
+    const T = transportRef.current; if (T) { try { T.stop(); T.position = 0; T.bpm.value = bpmRef.current; } catch (e) {} T.start(); }
+    if (midiRef.current.on && midiRef.current.port) midiSend(midiRef.current.port, [MIDI_START], performance.now());
+    setPlaying(true);
+  }, [ensureGraph, buildSource, noiseOn]);
+
+  const stop = useCallback(() => {
+    setPlaying(false);
+    if (srcRef.current && srcRef.current.sg) srcRef.current.sg.gain.rampTo(0, 0.8);
+    if (noiseChainRef.current) noiseChainRef.current.ng.gain.rampTo(0, 0.8);
+    const T = transportRef.current; if (T) { try { T.stop(); } catch (e) {} }
+    if (midiRef.current.on && midiRef.current.port) midiSend(midiRef.current.port, [MIDI_STOP], performance.now());
+    setTimeout(() => disposeSource(), 900);
+  }, [disposeSource]);
+
+  const currentPerf = useCallback(() => {
+    if (aiRef.current.active && (aiRef.current.notes.length || aiRef.current.drums.length)) return { notes: aiRef.current.notes, drums: aiRef.current.drums };
+    return generatePerformance(EXPORT_BARS, Array.from(stylesRef.current), densityRef.current, melCfgRef.current, true);
+  }, []);
+
+  const exportMidi = useCallback(() => {
+    try { const perf = currentPerf(); const bytes = buildMidi(perf, bpmRef.current, 480); downloadBlob(new Blob([bytes], { type: "audio/midi" }), `ghatika_${bpmRef.current}bpm.mid`); } catch (e) { console.error(e); }
+  }, [currentPerf]);
+
+  const exportWav = useCallback(async () => {
+    if (rendering) return; setRendering(true);
+    try {
+      const bpmv = bpmRef.current, spb = 60 / bpmv; const inst = instrumentRef.current;
+      const perf = currentPerf();
+      const dur = EXPORT_BARS * 4 * spb + 1.6;
+      const rendered = await Tone.Offline(() => {
+        const dest = Tone.getDestination(); const k = makeKit(dest); const mv = makeMelodyVoice(dest, inst);
+        perf.drums.forEach((d) => { const t = d.step * spb / 4 + (d.off || 0) + 0.02; triggerDrum(k, d.voice, d.vel, t); });
+        perf.notes.forEach((n) => { const t = n.step * spb / 4 + 0.02; try { mv.triggerAttackRelease(midiToFreq(n.midi), n.durSteps * spb / 4, t, n.vel); } catch (e) {} });
+      }, dur);
+      const ab = rendered && rendered.get ? rendered.get() : rendered;
+      const wav = audioBufferToWav(ab);
+      downloadBlob(new Blob([wav], { type: "audio/wav" }), `ghatika_${bpmv}bpm.wav`);
+    } catch (e) { console.error(e); }
+    setRendering(false);
+  }, [rendering, currentPerf]);
+
+  const aiComposeNow = useCallback(async () => {
+    if (composing) return; setComposing(true); setAiStatus("composing\u2026");
+    try {
+      const ctx = { root: melRoot, scale: melScale, pattern: melPattern, bpm: bpmRef.current, oct: melOct, styles: Array.from(stylesRef.current), mood };
+      const take = await aiCompose(ctx);
+      if (!take.notes.length && !take.drums.length) { setAiStatus("model returned an empty phrase \u2014 try again"); setComposing(false); return; }
+      aiRef.current.notes = take.notes; aiRef.current.drums = take.drums; aiRef.current.active = true; setAiActive(true);
+      setAiStatus(`loaded: ${take.notes.length} notes, ${take.drums.length} hits \u2014 playing the AI take`);
+    } catch (e) { setAiStatus("compose failed: " + (e && e.message ? e.message : String(e))); }
+    setComposing(false);
+  }, [composing, melRoot, melScale, melPattern, melOct, mood]);
+
+  const clearAi = useCallback(() => { aiRef.current.active = false; aiRef.current.notes = []; aiRef.current.drums = []; setAiActive(false); setAiStatus(""); }, []);
+
+  // Apply one measure's queued control changes (set by the director ahead of time).
+  // Writes through the real setters so the UI controls visibly move -- except pins.
+  const djApply = useCallback((measure) => {
+    const plan = planRef.current[measure]; if (!plan || !plan.controls) return;
+    const c = plan.controls; const pinned = pinsRef.current;
+    const allow = (key) => !pinned.has(key);
+    if (c.styles && allow("styles")) { const ns = new Set(c.styles); setStyles(ns); stylesRef.current = ns; if (!rhythmOnRef.current) { rhythmOnRef.current = true; setRhythmOn(true); } }
+    if (c.density != null && allow("density")) { densityRef.current = c.density; setDensity(c.density); }
+    if (c.scale && allow("scale")) { setMelScale(c.scale); if (!melOnRef.current) { melOnRef.current = true; setMelOn(true); } }
+    if (c.root && allow("root")) setMelRoot(c.root);
+    if (c.instrument && allow("instrument")) setInstrument(c.instrument);
+    if (c.bpm != null && allow("tempo")) setBpm(c.bpm);
+    if (allow("fx")) {
+      if (c.fxFilter != null) setFxFilter(c.fxFilter);
+      if (c.fxDelay != null) setFxDelay(c.fxDelay);
+      if (c.fxReverb != null) setFxReverb(c.fxReverb);
+      if (c.fxDrive != null) setFxDrive(c.fxDrive);
+    }
+    // melody on/off pin: if melody is pinned off, drop planned notes for safety
+    if (!allow("melody")) plan.notes = [];
+  }, []);
+  useEffect(() => { djApplyRef.current = djApply; }, [djApply]);
+
+  // Look-ahead: request the director to write the next `horizon` measures
+  // beyond what's already planned. Fire-and-forget; never blocks audio.
+  const requestAhead = useCallback(async (currentMeasure) => {
+    const d = djRef.current; if (!d.on || d.busy) return;
+    // find which upcoming measures still lack a plan, within the horizon window
+    const want = [];
+    for (let i = 1; i <= d.horizon; i++) { const m = currentMeasure + i; if (!planRef.current[m]) want.push(m); }
+    if (!want.length) return;
+    d.busy = true; setDjStatus(`thinking ahead \u2192 measures ${want[0]}\u2013${want[want.length - 1]}`);
+    const seg = navRef.current;
+    const band = BANDS.find((b) => b.key === seg.manualBand) || BANDS[1];
+    const ctx = {
+      mode: d.mode, brief: d.brief,
+      segLabel: lastSegLabelRef.current || "Arrive", beatHz: Number(lastBeatRef.current || band.hz).toFixed(1), bandName: bandForHz(lastBeatRef.current || band.hz).name,
+      elapsedMin: ((performance.now() / 1000 - startRef.current) / 60).toFixed(1),
+      styles: Array.from(stylesRef.current), density: densityRef.current, scale: melCfgRef.current.scale, root: melCfgRef.current.root,
+      instrument: instrumentRef.current, bpm: bpmRef.current,
+      fxFilter: fxFilterRef.current, fxDelay: fxDelayRef.current, fxReverb: fxReverbRef.current, fxDrive: fxDriveRef.current,
+      pinned: Array.from(pinsRef.current), history: d.history.slice(-4), want,
+    };
+    try {
+      const r = await aiDirect(ctx);
+      let placed = 0;
+      r.measures.forEach((mm) => { if (want.indexOf(mm.m) >= 0) { planRef.current[mm.m] = { notes: mm.notes, drums: mm.drums, controls: mm.controls }; placed++; } });
+      if (r.intent) { d.history.push(r.intent); setDjLog((L) => [{ m: want[0], t: r.intent }, ...L].slice(0, 5)); }
+      d.oks++; d.fails = 0;
+      // adaptive horizon: once stable (3 good calls), tighten 4 -> 2 for responsiveness
+      if (d.oks >= 3 && d.horizon > 2) { d.horizon = 2; setDjHorizon(2); }
+      setDjStatus(r.intent ? `\u201c${r.intent}\u201d` : `planned ${placed} measure(s)`);
+    } catch (e) {
+      d.fails++; setDjStatus(`director hiccup (${d.fails}) \u2014 holding; generative fallback covers the gap`);
+      if (d.horizon < 4) { d.horizon = 4; setDjHorizon(4); } // widen again after a miss
+    }
+    d.busy = false;
+  }, []);
+  useEffect(() => { requestAheadRef.current = requestAhead; }, [requestAhead]);
+
+  const clearPlan = useCallback(() => { planRef.current = {}; measureRef.current = -1; djRef.current.history = []; setDjLog([]); }, []);
+  const togglePin = useCallback((key) => setPins((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; }), []);
+
+  useEffect(() => {
+    const loop = () => {
+      rafRef.current = requestAnimationFrame(loop); if (!playing) return;
+      const spb = 60 / bpmRef.current, breathSec = spb * BEATS_PER_BREATH;
+      const now = performance.now() / 1000; const elapsed = now - startRef.current;
+      const inBreath = elapsed % breathSec; const beatPos = inBreath / spb;
+      let env, phaseIdx;
+      if (beatPos < 2) { phaseIdx = 0; env = smoothstep(beatPos / 2); } else if (beatPos < 4) { phaseIdx = 1; env = 1; } else if (beatPos < 6) { phaseIdx = 2; env = 1 - smoothstep((beatPos - 4) / 2); } else { phaseIdx = 3; env = 0; }
+      if (breathGainRef.current) breathGainRef.current.gain.value = 0.45 + 0.55 * env;
+      let curHz, segLabel, segIdx = 0; const nav = navRef.current;
+      if (nav.navMode === "journey") {
+        const total = nav.minutes * 60; const tw = JOURNEY.reduce((s, j) => s + j.weight, 0); let acc = 0, found = JOURNEY.length - 1;
+        for (let i = 0; i < JOURNEY.length; i++) { const dur = (JOURNEY[i].weight / tw) * total; if (elapsed < acc + dur || i === JOURNEY.length - 1) { found = i; break; } acc += dur; }
+        if (elapsed >= total) found = JOURNEY.length - 1;
+        segIdx = found; segLabel = JOURNEY[found].label; curHz = JOURNEY[found].hz;
+        if (found !== lastSegRef.current) { lastSegRef.current = found; updateBeat(curHz, 4.0); }
+        if (elapsed >= total) stop();
+      } else { const b = BANDS.find((x) => x.key === nav.manualBand) || BANDS[1]; curHz = b.hz; segLabel = "Manual"; segIdx = -1; }
+      const scale = 0.62 + 0.5 * env; const ph = PHASES[phaseIdx];
+      if (orbRef.current) { orbRef.current.setAttribute("transform", `translate(150 150) scale(${scale.toFixed(3)})`); orbRef.current.setAttribute("stroke", ph.color); }
+      if (orbGlowRef.current) { orbGlowRef.current.setAttribute("opacity", (0.18 + 0.5 * env).toFixed(3)); orbGlowRef.current.setAttribute("transform", `translate(150 150) scale(${(scale * 1.25).toFixed(3)})`); }
+      const tick = Math.floor(beatPos); dotsRef.current.forEach((dd, i) => { if (!dd) return; const on = i === tick; dd.setAttribute("r", on ? "5.2" : "3"); dd.setAttribute("opacity", on ? "1" : "0.4"); });
+      if (playheadRef.current && nav.navMode === "journey") { const frac = Math.min(1, elapsed / (nav.minutes * 60)); playheadRef.current.setAttribute("x", (8 + frac * 284).toFixed(1)); }
+      for (let i = 0; i < VOICES.length; i++) { lampValRef.current[i] *= 0.8; const el = lampElRef.current[i]; if (el) el.setAttribute("opacity", (0.16 + 0.84 * lampValRef.current[i]).toFixed(3)); }
+      // feed the director its conductor signals, and let it write the near future
+      lastSegLabelRef.current = segLabel; lastBeatRef.current = curHz;
+      if (djRef.current.on) { const curMeasure = Math.floor(stepCountRef.current / 16); if (requestAheadRef.current) requestAheadRef.current(curMeasure); }
+      if (now - dispThrottle.current > 0.25) { dispThrottle.current = now; setDisp({ beat: curHz, seg: segLabel, phase: ph.name, elapsed, segIdx, note: lastNoteRef.current }); }
+    };
+    rafRef.current = requestAnimationFrame(loop); return () => cancelAnimationFrame(rafRef.current);
+    /* eslint-disable-next-line */
+  }, [playing]);
+
+  useEffect(() => () => {
+    try { disposeSource(); } catch (e) {}
+    const T = transportRef.current; if (T) { try { T.stop(); if (repeatIdRef.current != null) T.clear(repeatIdRef.current); } catch (e) {} }
+    const k = kitRef.current; if (k) Object.values(k).forEach((n) => { try { n.dispose(); } catch (e) {} });
+    [masterRef, breathGainRef, drumBusRef, melBusRef, melVoiceRef, preFxRef].forEach((r) => { try { r.current && r.current.dispose(); } catch (e) {} });
+    const fx = fxRef.current; if (fx) Object.values(fx).forEach((n) => { try { n.dispose(); } catch (e) {} });
+    const nc = noiseChainRef.current; if (nc) Object.values(nc).forEach((n) => { try { n.dispose(); } catch (e) {} });
+    /* eslint-disable-next-line */
+  }, []);
+
+  const curBand = bandForHz(disp.beat);
+  const highBeatWarn = mode === "binaural" && disp.beat > 30;
+  const mm = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const toggleStyle = (key) => setStyles((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const Seg = ({ children, active, color, onClick, dim }) => (<button onClick={onClick} className="g-seg" style={{ borderColor: active ? (color || "#e7e3da") : "rgba(231,227,218,0.18)", color: active ? "#0a0b0f" : (dim ? "var(--muted)" : "var(--ink)"), background: active ? (color || "#e7e3da") : "transparent" }}>{children}</button>);
+
+  return (
+    <div style={{ minHeight: "100%", display: "flex", justifyContent: "center" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        .g-root { --bg:#08090d; --ink:#e7e3da; --muted:#878d9a; background: radial-gradient(130% 100% at 50% 8%, #13151d 0%, #0a0b10 55%, #06070b 100%);
+          width:100%; max-width:760px; color:var(--ink); border-radius:14px; padding:28px 26px 24px; font-family:'Cormorant Garamond', Georgia, serif; position:relative; overflow:hidden; box-shadow: inset 0 0 140px rgba(0,0,0,0.55); }
+        .g-root:before { content:''; position:absolute; inset:0; pointer-events:none; opacity:0.04; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+        .g-mono { font-family:'IBM Plex Mono', ui-monospace, monospace; }
+        .g-h { font-size:26px; font-weight:500; margin:0; letter-spacing:0.5px; }
+        .g-sub { color:var(--muted); font-style:italic; font-size:15px; margin:2px 0 0; }
+        .g-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .g-seg { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:1px; text-transform:uppercase; padding:7px 13px; border-radius:30px; border:1px solid; cursor:pointer; transition:all .25s; }
+        .g-label { font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); }
+        .g-big { font-family:'IBM Plex Mono',monospace; font-size:25px; }
+        .g-play { font-family:'Cormorant Garamond',serif; font-size:18px; letter-spacing:1px; padding:11px 30px; border-radius:32px; cursor:pointer; transition:all .3s; border:1px solid rgba(231,227,218,0.4); background:transparent; color:var(--ink); }
+        .g-play:hover { border-color:var(--ink); background:rgba(231,227,218,0.06); }
+        .g-slider { -webkit-appearance:none; appearance:none; height:3px; border-radius:3px; background:rgba(231,227,218,0.25); outline:none; }
+        .g-slider::-webkit-slider-thumb { -webkit-appearance:none; width:13px; height:13px; border-radius:50%; background:var(--ink); cursor:pointer; }
+        .g-sel { font-family:'IBM Plex Mono',monospace; font-size:11px; background:#0e1016; color:var(--ink); border:1px solid rgba(231,227,218,0.2); border-radius:8px; padding:6px 8px; }
+        .g-card { background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:12px 14px; }
+        .g-warn { color:#e8a23f; font-size:12.5px; font-style:italic; }
+        .g-note { color:var(--muted); font-size:12px; line-height:1.5; }
+        .g-div { height:1px; background:rgba(231,227,218,0.08); margin:15px 0 3px; }
+      `}</style>
+
+      <div className="g-root">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
+          <div><h1 className="g-h">{"Gh\u0101tik\u0101 \u2014 The Embryonic Breath"}</h1><p className="g-sub">breath &middot; entrainment &middot; rhythm &middot; melody &middot; export</p></div>
+          <div className="g-mono" style={{ textAlign: "right", color: curBand.color }}><div className="g-big">{Number(disp.beat).toFixed(1)}<span style={{ fontSize: 13, color: "var(--muted)" }}>Hz</span></div><div style={{ fontSize: 12, letterSpacing: 1 }}>{curBand.name.toUpperCase()}{disp.note ? "  \u00b7  " + disp.note : ""}</div></div>
+        </div>
+
+        <svg viewBox="0 0 300 300" style={{ width: "100%", maxWidth: 300, height: "auto", display: "block", margin: "4px auto 0" }}>
+          <defs><radialGradient id="orbg4"><stop offset="0%" stopColor="#fff" stopOpacity="0.85" /><stop offset="45%" stopColor={curBand.color} stopOpacity="0.4" /><stop offset="100%" stopColor={curBand.color} stopOpacity="0" /></radialGradient></defs>
+          {Array.from({ length: 8 }).map((_, i) => { const a = -Math.PI / 2 + (i * 2 * Math.PI) / 8; const x = 150 + 118 * Math.cos(a), y = 150 + 118 * Math.sin(a); const ph = PHASES.find((p) => i >= p.a && i < p.b); return <circle key={i} ref={(n) => (dotsRef.current[i] = n)} cx={x} cy={y} r="3" fill={ph.color} opacity="0.4" />; })}
+          <circle ref={orbGlowRef} transform="translate(150 150) scale(1)" r="60" fill="url(#orbg4)" opacity="0.2" />
+          <circle ref={orbRef} transform="translate(150 150) scale(1)" r="52" fill="none" stroke={curBand.color} strokeWidth="1.5" />
+          <text x="150" y="148" textAnchor="middle" fontSize="34" fill={PHASES.find((p) => p.name === disp.phase)?.color} style={{ fontFamily: "'Cormorant Garamond',serif" }}>{PHASES.find((p) => p.name === disp.phase)?.glyph}</text>
+          <text x="150" y="170" textAnchor="middle" className="g-mono" fontSize="10" fill="var(--muted)" letterSpacing="2">{disp.phase.toUpperCase()}</text>
+        </svg>
+
+        {navMode === "journey" && (
+          <div style={{ marginTop: 4 }}>
+            <svg viewBox="0 0 300 26" style={{ width: "100%", height: "auto" }}>
+              {segBounds.map((s, i) => { const x = 8 + (s.start / (minutes * 60)) * 284, w = ((s.end - s.start) / (minutes * 60)) * 284; const col = bandForHz(s.hz).color; return <rect key={i} x={x} y={9} width={Math.max(0, w - 1.5)} height={7} rx={3} fill={col} opacity={i === disp.segIdx ? 0.95 : 0.3} />; })}
+              <rect ref={playheadRef} x="8" y={6} width="2" height="13" fill="#fff" opacity="0.9" />
+            </svg>
+            <div className="g-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)" }}><span style={{ color: curBand.color }}>{disp.seg}</span><span>{mm(disp.elapsed)} / {mm(minutes * 60)}</span></div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="g-row"><span className="g-label" style={{ width: 58 }}>channel</span>{["binaural", "monaural", "isochronic"].map((m) => <Seg key={m} active={mode === m} onClick={() => setMode(m)}>{m}</Seg>)}</div>
+          <div className="g-row"><span className="g-label" style={{ width: 58 }}>guide</span><Seg active={navMode === "journey"} onClick={() => setNavMode("journey")}>journey</Seg><Seg active={navMode === "manual"} onClick={() => setNavMode("manual")}>hold a band</Seg>{navMode === "journey" && [6, 12, 24].map((m) => <Seg key={m} active={minutes === m} onClick={() => setMinutes(m)}>{m} min</Seg>)}</div>
+          {navMode === "manual" && <div className="g-row"><span className="g-label" style={{ width: 58 }}>band</span>{BANDS.map((b) => <Seg key={b.key} active={manualBand === b.key} color={b.color} onClick={() => setManualBand(b.key)}>{b.name} {b.hz}Hz</Seg>)}</div>}
+          <div className="g-row" style={{ gap: 16 }}>
+            <span className="g-label">tempo {bpm} BPM &middot; {(bpm / 8).toFixed(1)}/min breath</span>
+            <input className="g-slider" style={{ width: 130 }} type="range" min="56" max="132" step="1" value={bpm} onChange={(e) => setBpm(parseInt(e.target.value))} />
+          </div>
+          <div className="g-row" style={{ gap: 16 }}><span className="g-label">carrier {carrier}Hz</span><input className="g-slider" style={{ width: 96 }} type="range" min="80" max="400" step="2" value={carrier} onChange={(e) => setCarrier(parseInt(e.target.value))} /><span className="g-label">vol</span><input className="g-slider" style={{ width: 80 }} type="range" min="0" max="0.8" step="0.01" value={vol} onChange={(e) => setVol(parseFloat(e.target.value))} /><Seg active={noiseOn} onClick={() => setNoiseOn((v) => !v)}>wave bed</Seg></div>
+        </div>
+
+        <div className="g-div" />
+
+        {/* rhythm */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="g-row">
+            <span className="g-label" style={{ width: 58 }}>rhythm</span><Seg active={rhythmOn} onClick={() => setRhythmOn((v) => !v)}>{rhythmOn ? "on" : "off"}</Seg>
+            <svg viewBox="0 0 230 24" style={{ height: 22, width: 230 }}>{VOICES.map((v, i) => (<g key={v} transform={`translate(${16 + i * 31} 12)`}><circle ref={(n) => (lampElRef.current[i] = n)} r="6.5" fill={VOICE_COLOR[v]} opacity="0.16" /><text y="16" textAnchor="middle" className="g-mono" fontSize="6.5" fill="var(--muted)">{VOICE_LABEL[v]}</text></g>))}</svg>
+          </div>
+          <div className="g-row"><span className="g-label" style={{ width: 58 }}>styles</span>{STYLES.map((s) => <Seg key={s.key} active={styles.has(s.key)} onClick={() => toggleStyle(s.key)}>{s.name}</Seg>)}</div>
+          <div className="g-note" style={{ marginTop: -3, fontStyle: "italic" }}>{styles.size === 0 ? "tap one or more styles to layer them" : "layering: " + STYLES.filter((s) => styles.has(s.key)).map((s) => s.name.split(" ")[0]).join(" + ")}</div>
+          <div className="g-row" style={{ gap: 16 }}><span className="g-label">density {Math.round(density * 100)}%</span><input className="g-slider" style={{ width: 96 }} type="range" min="0.15" max="1" step="0.01" value={density} onChange={(e) => setDensity(parseFloat(e.target.value))} /><span className="g-label">drums</span><input className="g-slider" style={{ width: 80 }} type="range" min="0" max="0.9" step="0.01" value={drumVol} onChange={(e) => setDrumVol(parseFloat(e.target.value))} /></div>
+        </div>
+
+        <div className="g-div" />
+
+        {/* melody */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="g-row">
+            <span className="g-label" style={{ width: 58 }}>melody</span><Seg active={melOn} onClick={() => setMelOn((v) => !v)}>{melOn ? "on" : "off"}</Seg>
+            <select className="g-sel" value={melScale} onChange={(e) => setMelScale(e.target.value)}>{SCALE_OPTIONS.map((grp) => <optgroup key={grp.g} label={grp.g}>{grp.items.map((k) => <option key={k} value={k}>{SCALE_LABEL[k]}</option>)}</optgroup>)}</select>
+            <select className="g-sel" value={melRoot} onChange={(e) => setMelRoot(e.target.value)}>{NOTE_NAMES.map((n) => <option key={n} value={n}>{n}</option>)}</select>
+            {[3, 4, 5].map((o) => <Seg key={o} active={melOct === o} dim onClick={() => setMelOct(o)}>oct {o}</Seg>)}
+          </div>
+          <div className="g-row"><span className="g-label" style={{ width: 58 }}>pattern</span>{PATTERNS.map((p) => <Seg key={p.k} active={melPattern === p.k} onClick={() => setMelPattern(p.k)}>{p.n}</Seg>)}</div>
+          <div className="g-row" style={{ gap: 16 }}>
+            <span className="g-label">rate</span>{[[0.5, "1/2"], [1, "1/4"], [2, "1/8"], [4, "1/16"]].map(([r, lab]) => <Seg key={lab} active={melRate === r} onClick={() => setMelRate(r)}>{lab}</Seg>)}
+            <span className="g-label">tones</span><input className="g-slider" style={{ width: 80 }} type="range" min="0" max="0.9" step="0.01" value={melVol} onChange={(e) => setMelVol(parseFloat(e.target.value))} />
+          </div>
+          <div className="g-row"><span className="g-label" style={{ width: 58 }}>voice</span>{INSTRUMENTS.map((it) => <Seg key={it.k} active={instrument === it.k} onClick={() => setInstrument(it.k)}>{it.n}</Seg>)}</div>
+        </div>
+
+        <div className="g-div" />
+
+        <div className="g-div" />
+
+        {/* AI DJ director */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="g-row">
+            <span className="g-label" style={{ width: 58 }}>AI DJ</span>
+            <Seg active={djOn} color="#d24a6a" onClick={() => { setDjOn((v) => { const nv = !v; if (nv) { setAiActive(false); aiRef.current.active = false; } return nv; }); }}>{djOn ? "performing" : "hand over the decks"}</Seg>
+            {djOn && <Seg active={djMode === "arc"} onClick={() => setDjMode("arc")}>autonomous arc</Seg>}
+            {djOn && <Seg active={djMode === "journey"} onClick={() => setDjMode("journey")}>follow breath journey</Seg>}
+            {djOn && <span className="g-label">look-ahead {djHorizon}m</span>}
+          </div>
+          {djOn && djMode === "arc" && (
+            <div className="g-row"><span className="g-label" style={{ width: 58 }}>set brief</span>
+              <input className="g-sel" style={{ flex: 1, minWidth: 200 }} value={djBrief} onChange={(e) => setDjBrief(e.target.value)} placeholder="describe the arc: e.g. slow build, peak at 12 min, dissolve" />
+            </div>
+          )}
+          {djOn && (
+            <>
+              <div className="g-row"><span className="g-label" style={{ width: 58 }}>pins</span>
+                {PINNABLE.map((k) => <Seg key={k} active={pins.has(k)} color="#caa24a" onClick={() => togglePin(k)}>{pins.has(k) ? "\ud83d\udd12 " + k : k}</Seg>)}
+              </div>
+              <div className="g-note" style={{ marginTop: -2, fontStyle: "italic" }}>{djStatus || "the director writes the next few measures ahead of the playhead; pinned controls stay yours."}</div>
+              {djLog.length > 0 && (
+                <div className="g-card" style={{ padding: "8px 12px" }}>
+                  {djLog.map((e, i) => <div key={i} className="g-note" style={{ opacity: i === 0 ? 1 : 0.5 }}><span className="g-mono" style={{ color: "#d24a6a" }}>m{e.m}</span> &middot; {e.t}</div>)}
+                </div>
+              )}
+              <div className="g-row"><Seg onClick={clearPlan} dim>clear plan buffer</Seg></div>
+            </>
+          )}
+          <div className="g-note" style={{ marginTop: -2 }}>{"The DJ drives the toggles in real time \u2014 watch the controls move as it performs. It thinks 4 measures ahead, tightening to 2 once stable; if a call is slow or fails, the live generative engine fills the gap so sound never drops. Needs the in-app API (this chat runtime)."}</div>
+        </div>
+
+        <div className="g-div" />
+
+        {/* AI compose */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="g-row"><span className="g-label" style={{ width: 58 }}>compose</span>
+            <input className="g-sel" style={{ flex: 1, minWidth: 180 }} value={mood} onChange={(e) => setMood(e.target.value)} placeholder="mood / brief for the AI composer" />
+          </div>
+          <div className="g-row">
+            <Seg active={composing} color="#5fae8a" onClick={aiComposeNow}>{composing ? "composing\u2026" : "\u2728 AI compose one phrase"}</Seg>
+            {aiActive && <Seg color="#e8743f" onClick={clearAi}>back to generative</Seg>}
+            {aiStatus && <span className="g-note" style={{ fontStyle: "italic" }}>{aiStatus}</span>}
+          </div>
+          <div className="g-note" style={{ marginTop: -2 }}>One-shot: composes a single 8-bar phrase and loops it (distinct from the DJ, which keeps evolving). While a take is active it drives playback and export.</div>
+        </div>
+
+        <div className="g-div" />
+
+        {/* effects rack */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="g-row"><span className="g-label">{"effects rack \u00b7 filter \u2192 drive \u2192 delay \u2192 reverb (on drums + melody)"}</span></div>
+          <div className="g-row" style={{ gap: 14 }}>
+            <span className="g-label">filter</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="1" step="0.01" value={fxFilter} onChange={(e) => setFxFilter(parseFloat(e.target.value))} />
+            <span className="g-label">drive</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="1" step="0.01" value={fxDrive} onChange={(e) => setFxDrive(parseFloat(e.target.value))} />
+          </div>
+          <div className="g-row" style={{ gap: 14 }}>
+            <span className="g-label">delay</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="0.8" step="0.01" value={fxDelay} onChange={(e) => setFxDelay(parseFloat(e.target.value))} />
+            <span className="g-label">reverb</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="0.9" step="0.01" value={fxReverb} onChange={(e) => setFxReverb(parseFloat(e.target.value))} />
+          </div>
+        </div>
+
+        <div className="g-div" />
+
+        {/* live MIDI out */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="g-row">
+            <span className="g-label" style={{ width: 58 }}>MIDI out</span>
+            {!midiReady ? <Seg color="#4a8fd4" onClick={connectMidi}>connect MIDI</Seg> : (
+              <>
+                <select className="g-sel" value={midiSel} onChange={(e) => setMidiSel(e.target.value)}>{midiOuts.length ? midiOuts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>) : <option value="">(no devices)</option>}</select>
+                <Seg active={midiSend2Dev} color="#5fae8a" onClick={() => setMidiSend2Dev((v) => !v)}>{midiSend2Dev ? "sending" : "send to device"}</Seg>
+              </>
+            )}
+          </div>
+          {midiMsg && <span className="g-note" style={{ fontStyle: "italic" }}>{midiMsg}</span>}
+          <div className="g-note" style={{ marginTop: -2 }}>Sends 24-PPQN MIDI clock + start/stop + notes to the chosen device. Web MIDI is blocked inside the chat sandbox &mdash; run this <em>.jsx</em> as a standalone hosted page (e.g. the Dragon Ally <span className="g-mono">/dj</span> room) for live device sync.</div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 16, flexWrap: "wrap" }}>
+          <button className="g-play" onClick={() => (playing ? stop() : start())}>{playing ? "\u9748  rest" : "\u80ce\u606f  begin"}</button>
+          <Seg onClick={exportMidi}>export MIDI</Seg>
+          <Seg onClick={exportWav}>{rendering ? "rendering\u2026" : `export WAV (${EXPORT_BARS} bars)`}</Seg>
+          {highBeatWarn && <span className="g-warn">binaural fades &gt;30Hz &mdash; use isochronic</span>}
+        </div>
+        <div className="g-note" style={{ marginTop: 6 }}>Export bounces an {EXPORT_BARS}-bar take at {bpm} BPM in the current voice &mdash; the active AI phrase if one is loaded, otherwise a fresh generative take (which re-rolls each time). MIDI carries drums on GM channel 10 and melody on channel 1.</div>
+
+        <div className="g-card" style={{ marginTop: 14 }}>
+          <div className="g-label" style={{ marginBottom: 6 }}>honestly, and with respect</div>
+          <div className="g-note">
+            Rhythm styles are algorithmic <em>structural homages</em> &mdash; the chacapa pulse of Amazonian icaro and the interlocking hocket of Central African forest peoples (Aka, Baka, Mbuti, Batwa), plus a core-shamanic journey-pulse. Generated by code from documented principles, not recordings, transcriptions, or anyone&rsquo;s sacred repertoire. Binaural-beat entrainment is subjectively reported, not established; the breath-pacing is the reliable part; gamma/hypergamma are pulsed isochronically since binaural fusion fails above ~30 Hz.
+            <br /><br /><span style={{ color: "#e8a23f" }}>Care:</span> not a medical device. Don&rsquo;t use while driving. Epilepsy/seizure: consult a clinician first. Gentle volume. Nothing strobes.
+          </div>
+        </div>
+
+        <div className="g-mono" style={{ marginTop: 14, opacity: 0.5, fontSize: 11, letterSpacing: 1, textAlign: "center" }}>{"\u80ce\u606f \u00b7 \u7121\u6975\u5167\u529f"} &nbsp; the standing practice continues</div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(GhatikaV6));
+</script>
+</body>
+</html>

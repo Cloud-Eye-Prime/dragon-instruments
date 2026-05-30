@@ -1,0 +1,14 @@
+{
+  "name": "heartbeat-pages",
+  "private": true,
+  "version": "1.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "serve public -l $PORT"
+  },
+  "dependencies": {
+    "serve": "^14.2.4"
+  }
+}
