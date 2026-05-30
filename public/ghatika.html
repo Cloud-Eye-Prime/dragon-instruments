@@ -379,6 +379,13 @@ function GhatikaV6() {
   const [midiSel, setMidiSel] = useState("");
   const [midiSend2Dev, setMidiSend2Dev] = useState(false);
   const [midiMsg, setMidiMsg] = useState("");
+  // mixer
+  const [drumGains, setDrumGains] = useState(() => Object.fromEntries(VOICES.map(v => [v, 1.0])));
+  const [waveBedVol, setWaveBedVol] = useState(0.1);
+  // percussion grid: manual step overrides (voice -> 32 booleans)
+  const [manualPat, setManualPat] = useState(() => Object.fromEntries(VOICES.map(v => [v, Array(32).fill(false)])));
+  // grid / note history render tick (throttled)
+  const [gridTick, setGridTick] = useState(0);
   // AI DJ director
   const [djOn, setDjOn] = useState(false);
   const [djMode, setDjMode] = useState("arc");        // "arc" (autonomous) | "journey" (follow breath score)
@@ -414,6 +421,11 @@ function GhatikaV6() {
   const requestAheadRef = useRef(null);
   const fxFilterRef = useRef(fxFilter), fxDelayRef = useRef(fxDelay), fxReverbRef = useRef(fxReverb), fxDriveRef = useRef(fxDrive);
   const lastSegLabelRef = useRef("Arrive"), lastBeatRef = useRef(10);
+  const drumGainsRef = useRef(Object.fromEntries(VOICES.map(v => [v, 1.0])));
+  const manualPatRef = useRef(Object.fromEntries(VOICES.map(v => Array(32).fill(false))));
+  const hitHistRef = useRef(Object.fromEntries(VOICES.map(v => Array(32).fill(0)))); // per-voice per-step decay counter
+  const noteHistRef = useRef([]); // [{step,midi}] rolling last 32
+  const activeStepRef = useRef(0);
 
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { carrierRef.current = carrier; }, [carrier]);
@@ -521,8 +533,8 @@ function GhatikaV6() {
     const melBus = new Tone.Gain(melVol).connect(musicBus); melVoiceRef.current = makeMelodyVoice(melBus, instrumentRef.current); melBusRef.current = melBus;
     const T = Tone.getTransport ? Tone.getTransport() : Tone.Transport; transportRef.current = T; T.bpm.value = bpmRef.current;
     applyFx();
-    const fire = (v, vel, time) => { const k = kitRef.current; if (!k) return; triggerDrum(k, v, vel, time); const idx = VOICES.indexOf(v); if (idx >= 0) lampValRef.current[idx] = Math.min(1, 0.45 + vel); };
-    const playNote = (m, durSec, time, vel) => { if (melVoiceRef.current) { try { melVoiceRef.current.triggerAttackRelease(midiToFreq(m), durSec, time, vel); } catch (e) {} } lastNoteRef.current = NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1); maybeMidiNote(m, vel, time, durSec); };
+    const fire = (v, vel, time) => { const k = kitRef.current; if (!k) return; const scaledVel = Math.max(0, Math.min(1, vel * (drumGainsRef.current[v] ?? 1))); triggerDrum(k, v, scaledVel, time); const idx = VOICES.indexOf(v); if (idx >= 0) lampValRef.current[idx] = Math.min(1, 0.45 + scaledVel); const s = stepCountRef.current % 32; activeStepRef.current = s; if (hitHistRef.current[v]) hitHistRef.current[v][s] = 1.0; };
+    const playNote = (m, durSec, time, vel) => { if (melVoiceRef.current) { try { melVoiceRef.current.triggerAttackRelease(midiToFreq(m), durSec, time, vel); } catch (e) {} } lastNoteRef.current = NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1); maybeMidiNote(m, vel, time, durSec); const s = stepCountRef.current % 32; noteHistRef.current = [{step: s, midi: m}, ...noteHistRef.current].slice(0, 32); };
     repeatIdRef.current = T.scheduleRepeat((time) => {
       const step = stepCountRef.current; stepCountRef.current++;
       if (!playingRef.current) return;
@@ -551,11 +563,16 @@ function GhatikaV6() {
         if (rhythmOnRef.current) { const merged = {}; stylesRef.current.forEach((st) => genStep(st, step, env, densityRef.current).forEach(([v, vel, off]) => { if (!merged[v] || vel > merged[v].vel) merged[v] = { vel, off: off || 0 }; })); Object.keys(merged).forEach((v) => fire(v, merged[v].vel, time + merged[v].off)); }
         if (melOnRef.current && melVoiceRef.current) { const mel = melCfgRef.current; const intv = Math.max(1, Math.round(4 / mel.rate)); if (step % intv === 0) { if (!melStateRef.current) melStateRef.current = newMelState(mel); const m = genMelody(melStateRef.current, mel); if (m != null) playNote(m, Math.max(0.08, (intv - 0.2) * spb / 4), time, 0.5 * (0.7 + 0.3 * env)); } }
       }
+      // Manual percussion pattern overlay (always fires, independent of rhythm mode)
+      const sInB = step % 32;
+      VOICES.forEach(v => { if (manualPatRef.current[v] && manualPatRef.current[v][sInB]) fire(v, 0.75, time); });
     }, "16n");
   }, [vol, drumVol, melVol, fxDrive, fxDelay, fxReverb, applyFx]);
 
   useEffect(() => { if (masterRef.current) masterRef.current.gain.rampTo(vol, 0.2); }, [vol]);
-  useEffect(() => { const nc = noiseChainRef.current; if (nc) nc.ng.gain.rampTo(noiseOn && playing ? 0.1 : 0.0, 0.6); }, [noiseOn, playing]);
+  useEffect(() => { const nc = noiseChainRef.current; if (nc) nc.ng.gain.rampTo(noiseOn && playing ? waveBedVol : 0.0, 0.6); }, [noiseOn, playing, waveBedVol]);
+  useEffect(() => { drumGainsRef.current = drumGains; }, [drumGains]);
+  useEffect(() => { VOICES.forEach(v => { manualPatRef.current[v] = manualPat[v]; }); }, [manualPat]);
   useEffect(() => { if (playing && masterRef.current) buildSource(mode, disp.beat); /* eslint-disable-next-line */ }, [mode]);
   useEffect(() => { if (!playing || !srcRef.current) return; if (modeRef.current !== "isochronic") { srcRef.current.oL.frequency.rampTo(carrier - disp.beat / 2, 0.3); srcRef.current.oR.frequency.rampTo(carrier + disp.beat / 2, 0.3); } else srcRef.current.osc.frequency.rampTo(carrier, 0.3); /* eslint-disable-next-line */ }, [carrier]);
   useEffect(() => { if (playing && navMode === "manual") updateBeat(BANDS.find((b) => b.key === manualBand)?.hz || 6, 1.5); /* eslint-disable-next-line */ }, [manualBand, navMode]);
@@ -714,7 +731,7 @@ function GhatikaV6() {
       // feed the director its conductor signals, and let it write the near future
       lastSegLabelRef.current = segLabel; lastBeatRef.current = curHz;
       if (djRef.current.on) { const curMeasure = Math.floor(stepCountRef.current / 16); if (requestAheadRef.current) requestAheadRef.current(curMeasure); }
-      if (now - dispThrottle.current > 0.25) { dispThrottle.current = now; setDisp({ beat: curHz, seg: segLabel, phase: ph.name, elapsed, segIdx, note: lastNoteRef.current }); }
+      if (now - dispThrottle.current > 0.25) { dispThrottle.current = now; setDisp({ beat: curHz, seg: segLabel, phase: ph.name, elapsed, segIdx, note: lastNoteRef.current }); setGridTick(t => (t + 1) % 10000); VOICES.forEach(v => { if (hitHistRef.current[v]) hitHistRef.current[v] = hitHistRef.current[v].map(val => Math.max(0, val - 0.3)); }); }
     };
     rafRef.current = requestAnimationFrame(loop); return () => cancelAnimationFrame(rafRef.current);
     /* eslint-disable-next-line */
@@ -734,6 +751,8 @@ function GhatikaV6() {
   const highBeatWarn = mode === "binaural" && disp.beat > 30;
   const mm = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const toggleStyle = (key) => setStyles((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const toggleManualCell = (v, si) => setManualPat(prev => { const np = {...prev, [v]: [...prev[v]]}; np[v][si] = !np[v][si]; return np; });
+  const clearManualPat = () => setManualPat(Object.fromEntries(VOICES.map(v => [v, Array(32).fill(false)])));
   const Seg = ({ children, active, color, onClick, dim }) => (<button onClick={onClick} className="g-seg" style={{ borderColor: active ? (color || "#e7e3da") : "rgba(231,227,218,0.18)", color: active ? "#0a0b0f" : (dim ? "var(--muted)" : "var(--ink)"), background: active ? (color || "#e7e3da") : "transparent" }}>{children}</button>);
 
   return (
@@ -799,6 +818,46 @@ function GhatikaV6() {
 
         <div className="g-div" />
 
+        {/* VOLUME MIXER */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="g-label">mixer</div>
+          <div className="g-card" style={{ overflowX: "auto" }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-end", minWidth: 480 }}>
+              {/* wave bed */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 36 }}>
+                <span className="g-mono" style={{ fontSize: 9, color: "var(--muted)", letterSpacing: 1 }}>WAVE</span>
+                <input className="g-slider" type="range" min="0" max="0.4" step="0.01" value={waveBedVol}
+                  onChange={e => setWaveBedVol(parseFloat(e.target.value))}
+                  style={{ writingMode: "vertical-lr", direction: "rtl", height: 72, width: 18, cursor: "pointer" }} />
+                <span className="g-mono" style={{ fontSize: 9, color: "var(--muted)" }}>{Math.round(waveBedVol * 100)}</span>
+              </div>
+              <div style={{ width: 1, height: 90, background: "rgba(255,255,255,0.08)", margin: "0 2px" }} />
+              {/* per-drum voices */}
+              {VOICES.map(v => (
+                <div key={v} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 36 }}>
+                  <span className="g-mono" style={{ fontSize: 9, color: VOICE_COLOR[v], letterSpacing: 1, textTransform: "uppercase" }}>{VOICE_LABEL[v]}</span>
+                  <input className="g-slider" type="range" min="0" max="1.5" step="0.01"
+                    value={drumGains[v] ?? 1}
+                    onChange={e => setDrumGains(prev => ({ ...prev, [v]: parseFloat(e.target.value) }))}
+                    style={{ writingMode: "vertical-lr", direction: "rtl", height: 72, width: 18, cursor: "pointer" }} />
+                  <span className="g-mono" style={{ fontSize: 9, color: "var(--muted)" }}>{Math.round((drumGains[v] ?? 1) * 100)}</span>
+                </div>
+              ))}
+              <div style={{ width: 1, height: 90, background: "rgba(255,255,255,0.08)", margin: "0 2px" }} />
+              {/* melody */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 36 }}>
+                <span className="g-mono" style={{ fontSize: 9, color: "#5fae8a", letterSpacing: 1 }}>MEL</span>
+                <input className="g-slider" type="range" min="0" max="0.9" step="0.01" value={melVol}
+                  onChange={e => setMelVol(parseFloat(e.target.value))}
+                  style={{ writingMode: "vertical-lr", direction: "rtl", height: 72, width: 18, cursor: "pointer" }} />
+                <span className="g-mono" style={{ fontSize: 9, color: "var(--muted)" }}>{Math.round(melVol * 100)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="g-div" />
+
         {/* rhythm */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div className="g-row">
@@ -808,6 +867,42 @@ function GhatikaV6() {
           <div className="g-row"><span className="g-label" style={{ width: 58 }}>styles</span>{STYLES.map((s) => <Seg key={s.key} active={styles.has(s.key)} onClick={() => toggleStyle(s.key)}>{s.name}</Seg>)}</div>
           <div className="g-note" style={{ marginTop: -3, fontStyle: "italic" }}>{styles.size === 0 ? "tap one or more styles to layer them" : "layering: " + STYLES.filter((s) => styles.has(s.key)).map((s) => s.name.split(" ")[0]).join(" + ")}</div>
           <div className="g-row" style={{ gap: 16 }}><span className="g-label">density {Math.round(density * 100)}%</span><input className="g-slider" style={{ width: 96 }} type="range" min="0.15" max="1" step="0.01" value={density} onChange={(e) => setDensity(parseFloat(e.target.value))} /><span className="g-label">drums</span><input className="g-slider" style={{ width: 80 }} type="range" min="0" max="0.9" step="0.01" value={drumVol} onChange={(e) => setDrumVol(parseFloat(e.target.value))} /></div>
+
+          {/* PERCUSSION GRID */}
+          <div style={{ marginTop: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span className="g-label">percussion grid &middot; click to draw</span>
+              <button onClick={clearManualPat} className="g-seg" style={{ fontSize: 10, padding: "3px 8px", borderColor: "rgba(231,227,218,0.2)", color: "var(--muted)", background: "transparent" }}>clear</button>
+            </div>
+            <div style={{ display: "flex", gap: 0 }}>
+              {/* voice labels */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 0, marginRight: 4, justifyContent: "space-around" }}>
+                {VOICES.map(v => (
+                  <div key={v} className="g-mono" style={{ fontSize: 8, color: VOICE_COLOR[v], height: 13, display: "flex", alignItems: "center", letterSpacing: 0.5 }}>{VOICE_LABEL[v]}</div>
+                ))}
+              </div>
+              {/* grid */}
+              <svg viewBox={`0 0 ${32 * 10} ${VOICES.length * 13}`} style={{ width: "100%", height: "auto", cursor: "crosshair" }}>
+                {/* active step column */}
+                <rect x={activeStepRef.current * 10} y={0} width={10} height={VOICES.length * 13} fill="rgba(255,255,255,0.07)" />
+                {/* bar dividers (every 16 steps) */}
+                {[16].map(si => <line key={si} x1={si * 10} y1={0} x2={si * 10} y2={VOICES.length * 13} stroke="rgba(255,255,255,0.15)" strokeWidth={0.8} />)}
+                {VOICES.map((v, vi) => Array.from({ length: 32 }, (_, si) => {
+                  const hit = hitHistRef.current[v] ? hitHistRef.current[v][si] : 0;
+                  const manual = manualPat[v] && manualPat[v][si];
+                  return (
+                    <rect key={`${v}-${si}`}
+                      x={si * 10 + 1} y={vi * 13 + 1} width={8} height={11} rx={1.5}
+                      fill={manual ? VOICE_COLOR[v] : hit > 0.05 ? VOICE_COLOR[v] : "rgba(255,255,255,0.04)"}
+                      opacity={manual ? 0.95 : hit > 0.05 ? 0.2 + hit * 0.75 : 1}
+                      onClick={() => toggleManualCell(v, si)}
+                    />
+                  );
+                }))}
+              </svg>
+            </div>
+            <div className="g-note" style={{ marginTop: 3, fontStyle: "italic" }}>Live hits fade in real time. Drawn cells lock on &mdash; play alongside or override the generative engine.</div>
+          </div>
         </div>
 
         <div className="g-div" />
@@ -826,6 +921,55 @@ function GhatikaV6() {
             <span className="g-label">tones</span><input className="g-slider" style={{ width: 80 }} type="range" min="0" max="0.9" step="0.01" value={melVol} onChange={(e) => setMelVol(parseFloat(e.target.value))} />
           </div>
           <div className="g-row"><span className="g-label" style={{ width: 58 }}>voice</span>{INSTRUMENTS.map((it) => <Seg key={it.k} active={instrument === it.k} onClick={() => setInstrument(it.k)}>{it.n}</Seg>)}</div>
+
+          {/* NOTE GRID */}
+          {melOn && (() => {
+            const sc = SCALES[melScale] || SCALES.major;
+            const rootM = rootMidi(melRoot, melOct);
+            const rows = sc.length + 1; // one row per scale degree + octave top
+            const cellH = 11, cellW = 10, cols = 32;
+            const hist = noteHistRef.current.slice(0, 32);
+            return (
+              <div style={{ marginTop: 4 }}>
+                <span className="g-label">note ladder &middot; {SCALE_LABEL[melScale]} / {melRoot}</span>
+                <div style={{ display: "flex", gap: 0, marginTop: 4 }}>
+                  {/* degree labels */}
+                  <div style={{ display: "flex", flexDirection: "column-reverse", gap: 0, marginRight: 4 }}>
+                    {Array.from({ length: rows }, (_, i) => (
+                      <div key={i} className="g-mono" style={{ fontSize: 8, color: "var(--muted)", height: cellH, display: "flex", alignItems: "center" }}>
+                        {i === 0 ? melRoot : i === sc.length ? melRoot.toUpperCase() + "'" : i}
+                      </div>
+                    ))}
+                  </div>
+                  <svg viewBox={`0 0 ${cols * cellW} ${rows * cellH}`} style={{ width: "100%", height: "auto" }}>
+                    {/* lane lines */}
+                    {Array.from({ length: rows }, (_, i) => (
+                      <line key={i} x1={0} y1={i * cellH + cellH / 2} x2={cols * cellW} y2={i * cellH + cellH / 2}
+                        stroke="rgba(255,255,255,0.04)" strokeWidth={0.5} />
+                    ))}
+                    {/* bar divider */}
+                    <line x1={16 * cellW} y1={0} x2={16 * cellW} y2={rows * cellH} stroke="rgba(255,255,255,0.1)" strokeWidth={0.8} />
+                    {/* active step */}
+                    <rect x={activeStepRef.current * cellW} y={0} width={cellW} height={rows * cellH} fill="rgba(255,255,255,0.06)" />
+                    {/* note dots */}
+                    {hist.map((n, i) => {
+                      const semis = ((n.midi - rootM) % 12 + 12) % 12;
+                      const deg = sc.indexOf(semis);
+                      if (deg < 0) return null;
+                      const octOff = Math.max(0, Math.min(1, Math.floor((n.midi - rootM) / 12)));
+                      const row = rows - 1 - (deg + octOff * sc.length);
+                      const col = (n.step + 1) % 32; // most recent rightmost
+                      const age = i / 32;
+                      return (
+                        <rect key={i} x={col * cellW + 1} y={row * cellH + 1} width={cellW - 2} height={cellH - 2} rx={2}
+                          fill={curBand.color} opacity={Math.max(0.08, 0.9 - age * 0.7)} />
+                      );
+                    })}
+                  </svg>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         <div className="g-div" />
