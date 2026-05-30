@@ -289,8 +289,9 @@ const MIDI_CLOCK = 0xf8, MIDI_START = 0xfa, MIDI_STOP = 0xfc;
 async function aiCompose(ctx) {
   const sys = "You are a music composition engine. Output ONLY raw JSON, no prose, no markdown fences. Schema: {\"notes\":[{\"step\":int,\"midi\":int,\"dur\":int,\"vel\":float}],\"drums\":[{\"step\":int,\"voice\":string,\"vel\":float}]}. step is a 16th-note index 0..127 (8 bars). midi 36-96. dur in 16th steps >=1. vel 0..1. voice in [kick,snare,clap,frame,conga,shaker,tek]. Stay diatonic to the given scale/root. Make it musical and expressive of the mood; phrase it, do not fill every step.";
   const usr = `Compose an 8-bar phrase. Root ${ctx.root}, scale ${ctx.scale}, pattern feel ${ctx.pattern}, tempo ${ctx.bpm} BPM. Active rhythm styles: ${ctx.styles.join(", ") || "none"}. Mood: ${ctx.mood || "meditative, breathing, unhurried"}. Melody should sit in octaves ${ctx.oct}-${ctx.oct + 2}. Return JSON only.`;
-  const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": (window.__GHATIKA_KEY__||""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: sys, messages: [{ role: "user", content: usr }] }) });
+  const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": (window.__GHATIKA_KEY__||""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, system: sys, messages: [{ role: "user", content: usr }] }) });
   const data = await res.json();
+  if (!res.ok) throw new Error(`API ${res.status}: ${JSON.stringify(data.error || data)}`);
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
   const clean = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   const first = clean.indexOf("{"), last = clean.lastIndexOf("}");
@@ -314,8 +315,9 @@ async function aiDirect(ctx) {
     ? `Director mode: FOLLOW THE BREATH JOURNEY. The current entrainment segment is "${ctx.segLabel}" at ${ctx.beatHz}Hz (${ctx.bandName}). Match the music's energy to this segment: lower bands = sparser/slower/deeper, higher bands = busier/brighter. The breath score is your conductor.`
     : `Director mode: AUTONOMOUS ARC. Brief: "${ctx.brief}". You own the arc; evolve it with taste over the whole session (elapsed ${ctx.elapsedMin} min).`;
   const usr = `${scoreNote}\n${pinNote}\nCurrent state: styles[${ctx.styles.join(",") || "none"}] density ${ctx.density} scale ${ctx.scale} root ${ctx.root} instrument ${ctx.instrument} bpm ${ctx.bpm} fx(filter ${ctx.fxFilter}, delay ${ctx.fxDelay}, reverb ${ctx.fxReverb}, drive ${ctx.fxDrive}). Recent intents: ${ctx.history.join(" | ") || "(opening)"}. Write measures ${ctx.want.join(", ")}. Return JSON only.`;
-  const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": (window.__GHATIKA_KEY__||""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1400, system: sys, messages: [{ role: "user", content: usr }] }) });
+  const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": (window.__GHATIKA_KEY__||""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1400, system: sys, messages: [{ role: "user", content: usr }] }) });
   const data = await res.json();
+  if (!res.ok) throw new Error(`API ${res.status}: ${JSON.stringify(data.error || data)}`);
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
   const clean = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   const f = clean.indexOf("{"), l = clean.lastIndexOf("}");
@@ -694,7 +696,7 @@ function GhatikaV6() {
       if (d.oks >= 3 && d.horizon > 2) { d.horizon = 2; setDjHorizon(2); }
       setDjStatus(r.intent ? `\u201c${r.intent}\u201d` : `planned ${placed} measure(s)`);
     } catch (e) {
-      d.fails++; setDjStatus(`director hiccup (${d.fails}) \u2014 holding; generative fallback covers the gap`);
+      d.fails++; setDjStatus(`director hiccup (${d.fails}): ${e && e.message ? e.message : String(e)}`);
       if (d.horizon < 4) { d.horizon = 4; setDjHorizon(4); } // widen again after a miss
     }
     d.busy = false;
@@ -995,7 +997,7 @@ function GhatikaV6() {
               <div className="g-row"><span className="g-label" style={{ width: 58 }}>pins</span>
                 {PINNABLE.map((k) => <Seg key={k} active={pins.has(k)} color="#caa24a" onClick={() => togglePin(k)}>{pins.has(k) ? "\ud83d\udd12 " + k : k}</Seg>)}
               </div>
-              <div className="g-note" style={{ marginTop: -2, fontStyle: "italic" }}>{djStatus || "the director writes the next few measures ahead of the playhead; pinned controls stay yours."}</div>
+              <div className="g-note" style={{ marginTop: -2, fontStyle: "italic", color: djStatus && (djStatus.includes("hiccup") || djStatus.includes("API")) ? "#e8743f" : "var(--muted)" }}>{djStatus || "the director writes the next few measures ahead of the playhead; pinned controls stay yours."}</div>
               {djLog.length > 0 && (
                 <div className="g-card" style={{ padding: "8px 12px" }}>
                   {djLog.map((e, i) => <div key={i} className="g-note" style={{ opacity: i === 0 ? 1 : 0.5 }}><span className="g-mono" style={{ color: "#d24a6a" }}>m{e.m}</span> &middot; {e.t}</div>)}
@@ -1017,7 +1019,7 @@ function GhatikaV6() {
           <div className="g-row">
             <Seg active={composing} color="#5fae8a" onClick={aiComposeNow}>{composing ? "composing\u2026" : "\u2728 AI compose one phrase"}</Seg>
             {aiActive && <Seg color="#e8743f" onClick={clearAi}>back to generative</Seg>}
-            {aiStatus && <span className="g-note" style={{ fontStyle: "italic" }}>{aiStatus}</span>}
+            {aiStatus && <span className="g-note" style={{ fontStyle: "italic", color: aiStatus.startsWith("compose failed") || aiStatus.startsWith("model returned") ? "#e8743f" : "var(--muted)" }}>{aiStatus}</span>}
           </div>
           <div className="g-note" style={{ marginTop: -2 }}>One-shot: composes a single 8-bar phrase and loops it (distinct from the DJ, which keeps evolving). While a take is active it drives playback and export.</div>
         </div>
