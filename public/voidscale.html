@@ -350,6 +350,15 @@
             box-shadow: 0 0 8px rgba(157, 78, 221, 0.5);
         }
 
+        .euclidean-step.playhead {
+            border-color: var(--plasma-green);
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.7);
+        }
+
+        .euclidean-step.active.playhead {
+            background: var(--plasma-green);
+        }
+
         .scrollable {
             flex: 1;
             overflow-y: auto;
@@ -375,6 +384,25 @@
         .track-stats {
             color: var(--text-dim);
             font-size: 10px;
+        }
+
+        .track-item {
+            cursor: pointer;
+        }
+
+        .track-item.armed {
+            border-color: var(--plasma-green);
+            box-shadow: inset 3px 0 0 var(--plasma-green);
+        }
+
+        .track-arm {
+            color: var(--text-dim);
+            font-size: 9px;
+            letter-spacing: 0.5px;
+        }
+
+        .track-item.armed .track-arm {
+            color: var(--plasma-green);
         }
 
         .empty-state {
@@ -665,6 +693,10 @@
             tracks: [],
             uploadedFiles: [],
             currentInstrument: 'piano',
+            euclidDensity: 5,
+            euclidLength: 16,
+            grid: [],
+            steps: 16,
             instrumentMaps: {
                 piano: [60, 62, 64, 65, 67, 69, 71, 72],
                 synth: [36, 38, 40, 42, 44, 45, 47, 48],
@@ -688,12 +720,17 @@
 
         function setupEventListeners() {
             document.getElementById('playBtn').addEventListener('click', () => {
-                state.isPlaying = !state.isPlaying;
-                document.getElementById('playBtn').classList.toggle('active');
+                if (transport.running) {
+                    stopTransport();
+                    document.getElementById('playBtn').classList.remove('active');
+                } else {
+                    startTransport();
+                    document.getElementById('playBtn').classList.add('active');
+                }
             });
 
             document.getElementById('stopBtn').addEventListener('click', () => {
-                state.isPlaying = false;
+                stopTransport();
                 state.isRecording = false;
                 document.getElementById('playBtn').classList.remove('active');
                 document.getElementById('recordBtn').classList.remove('active');
@@ -824,27 +861,211 @@
             state.noteDivision = parseInt(document.getElementById('divisionSelect').value);
             document.getElementById('tempoDisplay').textContent = state.tempo;
             document.getElementById('timeSigDisplay').textContent = `${state.beatsPerBar}/4`;
+            rebuildGrid();
+        }
+
+        // ===== TRANSPORT (lookahead step sequencer) =====
+        // The instrument plays a looping grid whose length is the Euclidean
+        // "cycle length". Each step can carry several voices: the Euclidean
+        // pulse (a kick) plus the notes of every armed loop, quantized onto the
+        // same grid. A setTimeout tick schedules audio events slightly ahead on
+        // the audio clock ("a tale of two clocks") for steady timing.
+        const transport = { running: false, current: 0, nextTime: 0, timer: null };
+        const LOOKAHEAD = 0.1;   // seconds scheduled ahead of the audio clock
+        const TICK_MS = 25;      // how often the scheduler wakes up
+
+        function stepDuration() {
+            const secondsPerQuarter = 60 / Math.max(1, state.tempo);
+            const div = state.noteDivision || 8;
+            return secondsPerQuarter * 4 / div;
+        }
+
+        // Rebuild the step grid from the Euclidean pattern + armed loops. Each
+        // cell is an array of { note, velocity, instrument } voices. Loops are
+        // quantized by their real elapsed time onto the current grid, so a loop
+        // recorded at any tempo lands sensibly at the current tempo/division.
+        function rebuildGrid() {
+            const steps = Math.max(1, state.euclidLength | 0);
+            const grid = [];
+            for (let i = 0; i < steps; i++) grid.push([]);
+            const pat = euclideanPattern(state.euclidDensity, steps);
+            for (let i = 0; i < steps; i++) {
+                if (pat[i]) grid[i].push({ note: 36, velocity: 112, instrument: 'drums' });
+            }
+            const dur = stepDuration();
+            (state.tracks || []).forEach((tr) => {
+                if (tr.armed === false) return;
+                if (!tr.notes || !tr.notes.length) return;
+                const t0 = tr.notes[0].time;
+                const inst = tr.instrument || 'piano';
+                tr.notes.forEach((n) => {
+                    const relSec = (n.time - t0) / 1000;
+                    let idx = Math.round(relSec / dur) % steps;
+                    idx = ((idx % steps) + steps) % steps;
+                    grid[idx].push({ note: n.note, velocity: n.velocity, instrument: inst });
+                });
+            });
+            state.grid = grid;
+            state.steps = steps;
+        }
+
+        function highlightEuclidStep(stepIndex, when) {
+            const delay = Math.max(0, (when - audioContext.currentTime) * 1000);
+            setTimeout(() => {
+                const cells = document.querySelectorAll('#euclideanViz .euclidean-step');
+                if (!cells.length) return;
+                const active = stepIndex % cells.length;
+                cells.forEach((c, i) => {
+                    if (i === active) c.classList.add('playhead');
+                    else c.classList.remove('playhead');
+                });
+            }, delay);
+        }
+
+        function clearEuclidPlayhead() {
+            document.querySelectorAll('#euclideanViz .euclidean-step.playhead')
+                .forEach((c) => c.classList.remove('playhead'));
+        }
+
+        function scheduleStep(stepIndex, when) {
+            const cell = state.grid[stepIndex] || [];
+            cell.forEach((v) => triggerVoice(audioContext, masterGain, v.note, v.velocity, when, v.instrument));
+            highlightEuclidStep(stepIndex, when);
+        }
+
+        function transportTick() {
+            if (!transport.running) return;
+            while (transport.nextTime < audioContext.currentTime + LOOKAHEAD) {
+                scheduleStep(transport.current, transport.nextTime);
+                transport.nextTime += stepDuration();
+                transport.current = (transport.current + 1) % Math.max(1, state.steps);
+            }
+            transport.timer = setTimeout(transportTick, TICK_MS);
+        }
+
+        function startTransport() {
+            if (transport.running) return;
+            if (audioContext.state === 'suspended') audioContext.resume();
+            rebuildGrid();
+            transport.running = true;
+            transport.current = 0;
+            transport.nextTime = audioContext.currentTime + 0.06;
+            state.isPlaying = true;
+            transportTick();
+        }
+
+        function stopTransport() {
+            transport.running = false;
+            if (transport.timer) { clearTimeout(transport.timer); transport.timer = null; }
+            state.isPlaying = false;
+            clearEuclidPlayhead();
         }
 
         // ===== AUDIO SYNTHESIS =====
+        // One voice generator, scheduled on an audio clock so the live transport
+        // and the offline (export) render produce identical sound.
+
+        function noiseSource(ctx, seconds) {
+            const n = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+            const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            return src;
+        }
+
+        // Percussion synth. Maps the GM-ish drum numbers used by the Drums map
+        // (and the Euclidean pulse) to synthesized hits.
+        function triggerDrum(ctx, dest, note, gainScale, when) {
+            const v = Math.max(0.05, Math.min(1, gainScale));
+            if (note <= 36) {
+                const o = ctx.createOscillator(), g = ctx.createGain();
+                o.frequency.setValueAtTime(150, when);
+                o.frequency.exponentialRampToValueAtTime(45, when + 0.12);
+                g.gain.setValueAtTime(0.0001, when);
+                g.gain.exponentialRampToValueAtTime(0.9 * v, when + 0.005);
+                g.gain.exponentialRampToValueAtTime(0.0001, when + 0.28);
+                o.connect(g); g.connect(dest);
+                o.start(when); o.stop(when + 0.32);
+                return;
+            }
+            if (note === 38 || note === 39 || note === 40 || note === 49 || note === 51 || note === 53 || note === 55) {
+                const bright = note >= 49;
+                const dur = bright ? 0.4 : 0.18;
+                const src = noiseSource(ctx, dur + 0.05);
+                const hp = ctx.createBiquadFilter();
+                hp.type = 'highpass';
+                hp.frequency.value = bright ? 6000 : 1800;
+                const g = ctx.createGain();
+                g.gain.setValueAtTime(0.0001, when);
+                g.gain.exponentialRampToValueAtTime(0.6 * v, when + 0.004);
+                g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+                src.connect(hp); hp.connect(g); g.connect(dest);
+                src.start(when); src.stop(when + dur + 0.05);
+                if (!bright) {
+                    const o = ctx.createOscillator(), og = ctx.createGain();
+                    o.type = 'triangle';
+                    o.frequency.setValueAtTime(180, when);
+                    og.gain.setValueAtTime(0.0001, when);
+                    og.gain.exponentialRampToValueAtTime(0.3 * v, when + 0.004);
+                    og.gain.exponentialRampToValueAtTime(0.0001, when + 0.12);
+                    o.connect(og); og.connect(dest);
+                    o.start(when); o.stop(when + 0.14);
+                }
+                return;
+            }
+            const open = note === 46;
+            const dur = open ? 0.3 : 0.06;
+            const src = noiseSource(ctx, dur + 0.05);
+            const hp = ctx.createBiquadFilter();
+            hp.type = 'highpass';
+            hp.frequency.value = 8000;
+            const g = ctx.createGain();
+            g.gain.setValueAtTime(0.0001, when);
+            g.gain.exponentialRampToValueAtTime(0.35 * v, when + 0.003);
+            g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+            src.connect(hp); hp.connect(g); g.connect(dest);
+            src.start(when); src.stop(when + dur + 0.05);
+        }
+
+        // Pitched synth voice. Timbre depends on the active instrument map.
+        function triggerVoice(ctx, dest, note, velocity, when, instrument) {
+            if (instrument === 'drums') {
+                triggerDrum(ctx, dest, note, Math.max(1, Math.min(127, velocity)) / 127, when);
+                return;
+            }
+            const v = Math.max(1, Math.min(127, velocity)) / 127;
+            const freq = 440 * Math.pow(2, (note - 69) / 12);
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            let type = 'sine', dur = 0.5, peak = 0.3 * v;
+            if (instrument === 'piano') { type = 'triangle'; dur = 0.6; peak = 0.32 * v; }
+            else if (instrument === 'synth') { type = 'sawtooth'; dur = 0.45; peak = 0.24 * v; }
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, when);
+            let node = osc;
+            if (instrument === 'synth') {
+                const lp = ctx.createBiquadFilter();
+                lp.type = 'lowpass';
+                lp.frequency.setValueAtTime(Math.min(9000, freq * 6), when);
+                lp.Q.value = 6;
+                osc.connect(lp);
+                node = lp;
+            }
+            gain.gain.setValueAtTime(0.0001, when);
+            gain.gain.exponentialRampToValueAtTime(Math.max(0.001, peak), when + 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+            node.connect(gain);
+            gain.connect(dest);
+            osc.start(when);
+            osc.stop(when + dur + 0.05);
+        }
+
+        // Public realtime trigger used by pads, MIDI input, and one-shot previews.
         function playNote(note, velocity) {
             if (audioContext.state === 'suspended') audioContext.resume();
-            const freq = 440 * Math.pow(2, (note - 69) / 12);
-            const osc = audioContext.createOscillator();
-            const gain = audioContext.createGain();
-            const now = audioContext.currentTime;
-
-            osc.frequency.value = freq;
-            osc.type = 'sine';
-
-            gain.gain.setValueAtTime(velocity / 127 * 0.3, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-
-            osc.connect(gain);
-            gain.connect(masterGain);
-
-            osc.start(now);
-            osc.stop(now + 0.5);
+            triggerVoice(audioContext, masterGain, note, velocity, audioContext.currentTime, state.currentInstrument);
         }
 
         function recordNote(note, velocity) {
@@ -888,23 +1109,48 @@
         }
 
         // ===== EUCLIDEAN RHYTHM =====
+        // True Bjorklund algorithm: distributes `density` pulses as evenly as
+        // possible across `length` steps (the actual Euclidean rhythm, e.g.
+        // E(3,8)=10010010, E(5,8)=10110110).
         function euclideanPattern(density, length) {
-            const pattern = new Array(length).fill(0);
-            const interval = length / density;
-            for (let i = 0; i < density; i++) {
-                pattern[Math.round(i * interval) % length] = 1;
+            length = Math.max(1, length | 0);
+            density = Math.max(0, Math.min(length, density | 0));
+            if (density === 0) return new Array(length).fill(0);
+            if (density === length) return new Array(length).fill(1);
+            let groups = [];
+            for (let i = 0; i < density; i++) groups.push([1]);
+            let remainders = [];
+            for (let i = 0; i < length - density; i++) remainders.push([0]);
+            while (remainders.length > 1) {
+                const count = Math.min(groups.length, remainders.length);
+                const newGroups = [];
+                for (let i = 0; i < count; i++) newGroups.push(groups[i].concat(remainders[i]));
+                let newRemainders = [];
+                if (groups.length > remainders.length) {
+                    for (let i = count; i < groups.length; i++) newRemainders.push(groups[i]);
+                } else {
+                    for (let i = count; i < remainders.length; i++) newRemainders.push(remainders[i]);
+                }
+                groups = newGroups;
+                remainders = newRemainders;
             }
-            return pattern;
+            const flat = [];
+            groups.forEach((g) => g.forEach((x) => flat.push(x)));
+            remainders.forEach((g) => g.forEach((x) => flat.push(x)));
+            return flat.slice(0, length);
         }
 
         function renderEuclidean() {
-            const density = parseInt(document.getElementById('euclideanDensity').value);
-            const length = parseInt(document.getElementById('euclideanLength').value);
+            const density = parseInt(document.getElementById('euclideanDensity').value) || 0;
+            const length = parseInt(document.getElementById('euclideanLength').value) || 1;
+            state.euclidDensity = density;
+            state.euclidLength = length;
             const pattern = euclideanPattern(density, length);
             const viz = document.getElementById('euclideanViz');
-            viz.innerHTML = pattern.map((step, i) => 
+            viz.innerHTML = pattern.map((step, i) =>
                 `<div class="euclidean-step ${step ? 'active' : ''}"></div>`
             ).join('');
+            rebuildGrid();
         }
 
         document.getElementById('euclideanDensity').addEventListener('change', renderEuclidean);
@@ -912,14 +1158,18 @@
 
         // ===== TRACK MANAGEMENT =====
         function saveTrack() {
+            if (!state.recordedNotes.length) return;
             const track = {
                 id: Date.now(),
                 name: `Loop ${state.tracks.length + 1}`,
                 notes: [...state.recordedNotes],
-                duration: state.recordedNotes.length > 0 ? state.recordedNotes[state.recordedNotes.length - 1].time : 0
+                duration: state.recordedNotes.length > 0 ? state.recordedNotes[state.recordedNotes.length - 1].time : 0,
+                instrument: state.currentInstrument,
+                armed: true
             };
             state.tracks.push(track);
             renderTracks();
+            rebuildGrid();
         }
 
         function renderTracks() {
@@ -928,20 +1178,36 @@
                 container.innerHTML = '<div class="empty-state">⚬ No loops yet</div>';
                 return;
             }
-            container.innerHTML = state.tracks.map(track => `
-                <div class="track-item">
+            container.innerHTML = state.tracks.map(track => {
+                const armed = track.armed !== false;
+                const inst = track.instrument || 'piano';
+                return `
+                <div class="track-item ${armed ? 'armed' : ''}" data-id="${track.id}" title="click to ${armed ? 'mute' : 'arm'}">
                     <span class="track-label">${track.name}</span>
                     <div style="display: flex; gap: 8px; align-items: center;">
+                        <span class="track-arm">${armed ? 'ARMED' : 'MUTED'} · ${inst}</span>
                         <span class="track-stats">${track.notes.length}n</span>
                         <button class="file-delete" onclick="deleteTrack(${track.id})">✕</button>
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
+            container.querySelectorAll('.track-item').forEach((el) => {
+                el.addEventListener('click', (e) => {
+                    if (e.target.closest('.file-delete')) return;
+                    const id = Number(el.dataset.id);
+                    const tr = state.tracks.find((t) => t.id === id);
+                    if (!tr) return;
+                    tr.armed = tr.armed === false;
+                    renderTracks();
+                    rebuildGrid();
+                });
+            });
         }
 
         window.deleteTrack = function(id) {
             state.tracks = state.tracks.filter(t => t.id !== id);
             renderTracks();
+            rebuildGrid();
         };
 
         // ===== AI GENERATION (OpenRouter) =====
@@ -954,9 +1220,10 @@
             const msPerBeat = (60 / state.tempo) * 1000;
 
             function commit(notes, label) {
-                const track = { id: Date.now(), name: label, notes, duration: 16 * msPerBeat };
+                const track = { id: Date.now(), name: label, notes, duration: 16 * msPerBeat, instrument: state.currentInstrument, armed: true };
                 state.tracks.push(track);
                 renderTracks();
+                rebuildGrid();
                 playSequence(notes);
             }
 
@@ -1044,52 +1311,158 @@
         };
 
         // ===== EXPORT FUNCTIONS =====
-        function exportWAV() {
-            if (state.tracks.length === 0 && state.recordedNotes.length === 0) {
-                alert('No audio to export');
-                return;
-            }
+        const EXPORT_CYCLES = 2; // how many loops of the grid to bounce down
 
-            const status = document.getElementById('exportStatus');
-            status.textContent = 'Crystallizing...';
-            status.className = 'status-line warning';
-
-            setTimeout(() => {
-                // Simple WAV export simulation
-                const dataUrl = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAAAAA==';
-                const link = document.createElement('a');
-                link.href = dataUrl;
-                link.download = 'void-scale-output.wav';
-                link.click();
-
-                status.textContent = '✓ Crystallized';
-                status.className = 'status-line success';
-            }, 800);
+        function gridHasVoices() {
+            return (state.grid || []).some((c) => c && c.length);
         }
 
-        function exportMIDI() {
-            if (state.tracks.length === 0 && state.recordedNotes.length === 0) {
-                alert('No MIDI to export');
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1500);
+        }
+
+        // Render the current grid to a real PCM buffer with the SAME voice
+        // generators the live transport uses, so the file sounds like the toy.
+        function renderToBuffer(cycles) {
+            rebuildGrid();
+            const steps = Math.max(1, state.steps);
+            const dur = stepDuration();
+            const sr = 44100;
+            const total = steps * dur * cycles + 0.6;
+            const off = new OfflineAudioContext(2, Math.max(1, Math.ceil(total * sr)), sr);
+            const m = off.createGain();
+            m.gain.value = 0.85;
+            m.connect(off.destination);
+            for (let c = 0; c < cycles; c++) {
+                for (let s = 0; s < steps; s++) {
+                    const when = (c * steps + s) * dur + 0.03;
+                    (state.grid[s] || []).forEach((v) => triggerVoice(off, m, v.note, v.velocity, when, v.instrument));
+                }
+            }
+            return off.startRendering();
+        }
+
+        // 16-bit PCM WAV encoder (44-byte header + interleaved samples).
+        function encodeWAV(buffer) {
+            const numCh = buffer.numberOfChannels;
+            const sr = buffer.sampleRate;
+            const len = buffer.length;
+            const blockAlign = numCh * 2;
+            const dataSize = len * blockAlign;
+            const ab = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(ab);
+            let p = 0;
+            const str = (s) => { for (let i = 0; i < s.length; i++) view.setUint8(p++, s.charCodeAt(i)); };
+            const u32 = (v) => { view.setUint32(p, v, true); p += 4; };
+            const u16 = (v) => { view.setUint16(p, v, true); p += 2; };
+            str('RIFF'); u32(36 + dataSize); str('WAVE');
+            str('fmt '); u32(16); u16(1); u16(numCh); u32(sr); u32(sr * blockAlign); u16(blockAlign); u16(16);
+            str('data'); u32(dataSize);
+            const chans = [];
+            for (let c = 0; c < numCh; c++) chans.push(buffer.getChannelData(c));
+            for (let i = 0; i < len; i++) {
+                for (let c = 0; c < numCh; c++) {
+                    let s = Math.max(-1, Math.min(1, chans[c][i]));
+                    view.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+                    p += 2;
+                }
+            }
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        function exportWAV() {
+            rebuildGrid();
+            const status = document.getElementById('exportStatus');
+            if (!gridHasVoices()) {
+                status.textContent = 'Nothing to crystallize - record a loop, summon a pattern, or raise density.';
+                status.className = 'status-line error';
                 return;
             }
+            status.textContent = 'Crystallizing...';
+            status.className = 'status-line warning';
+            renderToBuffer(EXPORT_CYCLES).then((buf) => {
+                downloadBlob(encodeWAV(buf), 'void-scale-output.wav');
+                status.textContent = '✓ Crystallized (' + buf.duration.toFixed(1) + 's WAV)';
+                status.className = 'status-line success';
+            }).catch((e) => {
+                status.textContent = 'Render failed: ' + ((e && e.message) ? e.message : e);
+                status.className = 'status-line error';
+            });
+        }
 
+        // Variable-length quantity (MIDI delta-time encoding).
+        function midiVLQ(value) {
+            const bytes = [value & 0x7f];
+            value = Math.floor(value / 128);
+            while (value > 0) {
+                bytes.unshift((value & 0x7f) | 0x80);
+                value = Math.floor(value / 128);
+            }
+            return bytes;
+        }
+
+        // Real Standard MIDI File: 480 PPQ, tempo meta, drums on channel 10,
+        // melodic voices on channel 1.
+        function exportMIDI() {
+            rebuildGrid();
             const status = document.getElementById('exportStatus');
+            if (!gridHasVoices()) {
+                status.textContent = 'Nothing to encode - record a loop, summon a pattern, or raise density.';
+                status.className = 'status-line error';
+                return;
+            }
             status.textContent = 'Encoding...';
             status.className = 'status-line warning';
-
-            setTimeout(() => {
-                // Simple MIDI export simulation
-                const midiData = new Uint8Array([0x4D, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x01, 0x00, 0x80]);
-                const blob = new Blob([midiData], { type: 'audio/midi' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = 'void-scale-output.mid';
-                link.click();
-
-                status.textContent = '✓ Exported';
+            try {
+                const PPQ = 480;
+                const steps = Math.max(1, state.steps);
+                const ticksPerStep = Math.max(1, Math.round(PPQ * 4 / (state.noteDivision || 8)));
+                const events = [];
+                for (let c = 0; c < EXPORT_CYCLES; c++) {
+                    for (let s = 0; s < steps; s++) {
+                        const onTick = (c * steps + s) * ticksPerStep;
+                        const offTick = onTick + ticksPerStep;
+                        (state.grid[s] || []).forEach((v) => {
+                            const ch = v.instrument === 'drums' ? 9 : 0;
+                            const vel = Math.max(1, Math.min(127, v.velocity | 0));
+                            const note = v.note & 0x7f;
+                            events.push({ tick: onTick, order: 1, bytes: [0x90 | ch, note, vel] });
+                            events.push({ tick: offTick, order: 0, bytes: [0x80 | ch, note, 0] });
+                        });
+                    }
+                }
+                events.sort((a, b) => (a.tick - b.tick) || (a.order - b.order));
+                const track = [];
+                const usPerQuarter = Math.round(60000000 / Math.max(1, state.tempo));
+                track.push.apply(track, midiVLQ(0));
+                track.push(0xff, 0x51, 0x03, (usPerQuarter >> 16) & 0xff, (usPerQuarter >> 8) & 0xff, usPerQuarter & 0xff);
+                let last = 0;
+                events.forEach((e) => {
+                    track.push.apply(track, midiVLQ(e.tick - last));
+                    last = e.tick;
+                    track.push.apply(track, e.bytes);
+                });
+                track.push.apply(track, midiVLQ(0));
+                track.push(0xff, 0x2f, 0x00);
+                const header = [0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, (PPQ >> 8) & 0xff, PPQ & 0xff];
+                const tlen = track.length;
+                const trkHeader = [0x4d, 0x54, 0x72, 0x6b, (tlen >> 24) & 0xff, (tlen >> 16) & 0xff, (tlen >> 8) & 0xff, tlen & 0xff];
+                const out = new Uint8Array(header.length + trkHeader.length + tlen);
+                out.set(header, 0);
+                out.set(trkHeader, header.length);
+                out.set(track, header.length + trkHeader.length);
+                downloadBlob(new Blob([out], { type: 'audio/midi' }), 'void-scale-output.mid');
+                status.textContent = '✓ Exported (' + events.length / 2 + ' notes, SMF)';
                 status.className = 'status-line success';
-            }, 600);
+            } catch (e) {
+                status.textContent = 'Encode failed: ' + ((e && e.message) ? e.message : e);
+                status.className = 'status-line error';
+            }
         }
 
         // ===== VISUALIZATION =====
