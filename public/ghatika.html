@@ -11,7 +11,7 @@
 <script>
   function downloadSelfHtml(name){
     function dl(html){var b=new Blob([html],{type:'text/html'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download=name||'page.html';a.click();setTimeout(function(){URL.revokeObjectURL(u);},1500);}
-    fetch(location.href).then(function(r){return r.text();}).then(dl).catch(function(){dl('<!doctype html>'+document.documentElement.outerHTML);});
+    fetch(location.href,{cache:'no-store'}).then(function(r){return r.text();}).then(dl).catch(function(){dl('<!doctype html>'+document.documentElement.outerHTML);});
   }
 </script>
 <style>
