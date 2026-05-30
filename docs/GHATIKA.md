@@ -93,7 +93,7 @@ blocks Web MIDI, and the UI says so honestly when access is denied.
 ## The AI -- compose and DJ
 
 Both AI features call **Anthropic directly from the browser**
-(`https://api.anthropic.com/v1/messages`, model `claude-sonnet-4-20250514`),
+(`https://api.anthropic.com/v1/messages`, model `claude-sonnet-4-6`),
 using a bring-your-own-key entered in the top key bar. The key is held only in
 that tab's memory for the session -- never stored to disk or committed here.
 

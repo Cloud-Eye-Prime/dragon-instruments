@@ -54,7 +54,7 @@ repository never contains a key.
 
 - **Ghatika -> Anthropic.** The browser POSTs to
   `https://api.anthropic.com/v1/messages` with your key in the `x-api-key`
-  header (model `claude-sonnet-4-20250514`). Your key is entered in the top key
+  header (model `claude-sonnet-4-6`). Your key is entered in the top key
   bar and held **only in that tab's memory** for the session -- it is not saved
   to disk or `localStorage`, so closing the tab clears it.
 
