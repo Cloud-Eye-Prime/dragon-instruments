@@ -15,11 +15,13 @@ Each instrument is a single HTML file you can open, host, or download and fork.
 Two self-contained instruments that run entirely in the browser:
 
 - **V0ID_SCALE Labs** (`public/voidscale.html`) -- a vanilla Web Audio
-  pad/scale instrument. An 8-pad grid plays a swappable set of MIDI notes
-  through a single sine oscillator. It has an Euclidean-rhythm visualizer, an
-  ouroboros breath visual, a loop list, a master volume and mute, Web MIDI
-  input, and an AI "Summon" that asks a language model for a short phrase
-  locked to the active scale. One file, no dependencies, no build.
+  pad/scale instrument. An 8-pad grid plays a swappable set of MIDI notes with
+  per-instrument timbres (piano, filtered synth, sine, and a small drum synth).
+  It has a true Bjorklund Euclidean rhythm that drives a looping step sequencer,
+  an ouroboros breath visual, an armable loop list, real WAV
+  (`OfflineAudioContext`) and Standard MIDI File export, a master volume and
+  mute, Web MIDI input, and an AI "Summon" that asks a language model for a
+  short phrase locked to the active scale. One file, no dependencies, no build.
 
 - **Ghatika** (`public/ghatika.html`) -- a breath-and-entrainment sequencer
   built on React + Tone.js (both loaded from a CDN). It runs a single clock
@@ -136,18 +138,21 @@ docs/GHATIKA.md         what Ghatika does and how its AI works
 
 These are honest current gaps, listed so nobody is surprised:
 
-- **V0ID_SCALE transport is partial.** Play / Stop / Record toggle state, but
-  Play does not yet sequence the saved loops, and the Euclidean panel is a
-  visualizer that is not yet sonified. Recording captures live pad input.
+- **V0ID_SCALE playback is a step sequencer, not a free-time recorder.** Saved
+  loops are quantized onto the current step grid, so fine sub-step timing from a
+  live take is snapped to the nearest step. The loop length is driven by the
+  Euclidean "Cycle Length" rather than a separate bar control.
 
-- **V0ID_SCALE WAV/MIDI export is simplified.** It currently downloads a minimal
-  placeholder file rather than a full render of your audio. By contrast,
-  **Ghatika's MIDI and WAV export are full**: a hand-written Standard MIDI File
-  (drums on GM channel 10, melody on channel 1) and a deterministic offline
-  audio bounce.
+- **Everything is synthesized.** V0ID_SCALE's "instruments" are oscillator /
+  noise voices and a small drum synth, not sampled instruments; the WAV export
+  bounces exactly those voices via `OfflineAudioContext`. (Ghatika likewise
+  synthesizes its audio and exports a full Standard MIDI File and offline WAV.)
 
-Full sequencing and a real V0ID_SCALE render are intentional future work; they
-need a human ear and are out of scope for this release.
+- **AI and Web MIDI need a real page and a key.** Both are bring-your-own-key /
+  permission-gated and cannot be exercised in an automated sandbox.
+
+A dedicated bar/loop length independent of the Euclidean cycle, and sampled or
+imported instrument voices, are possible future work.
 
 ---
 
