@@ -707,6 +707,18 @@
         analyser.fftSize = 2048;
         masterGain.connect(analyser);
 
+        // ===== UTIL =====
+        // Escape strings before they enter innerHTML. Loop and file names are
+        // user-sourced (own prompt slice / own uploaded filenames), so this is
+        // self-inflicted today -- but this file is meant to be forked, and a
+        // fork that wires a model-controlled or shared string into a name would
+        // inherit a live stored-XSS seam without it. Cheap insurance.
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
         // ===== STATE =====
         const state = {
             tempo: 96,
@@ -1234,7 +1246,7 @@
                 const inst = track.instrument || 'piano';
                 return `
                 <div class="track-item ${armed ? 'armed' : ''}" data-id="${track.id}" title="click to ${armed ? 'mute' : 'arm'}">
-                    <span class="track-label">${track.name}</span>
+                    <span class="track-label">${escapeHtml(track.name)}</span>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <span class="track-arm">${armed ? 'ARMED' : 'MUTED'} · ${inst}</span>
                         <span class="track-stats">${track.notes.length}n</span>
@@ -1350,7 +1362,7 @@
             }
             container.innerHTML = state.uploadedFiles.map((file, idx) => `
                 <div class="file-item">
-                    <span class="file-name">${file.name}</span>
+                    <span class="file-name">${escapeHtml(file.name)}</span>
                     <button class="file-delete" onclick="deleteFile(${idx})">✕</button>
                 </div>
             `).join('');
