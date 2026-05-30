@@ -82,6 +82,13 @@
             overflow-y: auto;
         }
 
+        @media (max-width: 720px) {
+            body { height: auto; min-height: 100vh; overflow-y: auto; }
+            .container { flex-direction: column; overflow: visible; }
+            .main-panel { overflow: visible; }
+            .sidebar { width: 100%; overflow-y: visible; }
+        }
+
         .panel {
             background: var(--void-surface);
             border: 1px solid var(--void-border);
@@ -298,6 +305,12 @@
         .pad:hover {
             border-color: var(--plasma-cyan);
             background: rgba(0, 217, 255, 0.1);
+        }
+
+        .pad:disabled {
+            opacity: 0.25;
+            cursor: not-allowed;
+            pointer-events: none;
         }
 
         .pad.active {
@@ -719,6 +732,11 @@
                     if (idx < map.length) {
                         pad.dataset.note = map[idx];
                         pad.textContent = midiToNote(map[idx]);
+                        pad.disabled = false;
+                    } else {
+                        pad.dataset.note = '';
+                        pad.textContent = '';
+                        pad.disabled = true;
                     }
                 });
             });
