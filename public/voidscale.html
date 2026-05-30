@@ -642,7 +642,7 @@
                     <input type="text" id="aiModel" placeholder="openai/gpt-4o-mini" value="openai/gpt-4o-mini">
                 </div>
                 <div class="control-group">
-                    <label>OpenRouter Key (local only)</label>
+                    <label>OpenRouter Key (local only) <a href="#" id="forgetKey" style="font-size:0.8em;opacity:0.7;float:right;">forget</a></label>
                     <input type="password" id="aiKey" placeholder="sk-or-...">
                 </div>
                 <button class="btn" id="generateBtn" style="width: 100%;">✨ Summon</button>
@@ -889,6 +889,15 @@
             } catch (e) {}
             keyInput.addEventListener('change', () => { try { localStorage.setItem('voidscale_or_key', keyInput.value); } catch (e) {} });
             modelInput.addEventListener('change', () => { try { localStorage.setItem('voidscale_or_model', modelInput.value); } catch (e) {} });
+            // "forget" clears the persisted key from this browser and empties the field.
+            const forgetKey = document.getElementById('forgetKey');
+            if (forgetKey) forgetKey.addEventListener('click', (e) => {
+                e.preventDefault();
+                try { localStorage.removeItem('voidscale_or_key'); } catch (e2) {}
+                keyInput.value = '';
+                const st = document.getElementById('aiStatus');
+                if (st) { st.textContent = 'key forgotten'; st.className = 'status-line'; setTimeout(() => { st.textContent = ''; }, 2000); }
+            });
         }
 
         // ===== TIMING =====

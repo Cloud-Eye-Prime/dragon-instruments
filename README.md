@@ -63,6 +63,15 @@ sent only to the AI provider.** It is never committed to this repo and never
 passes through any server we run. The page source contains only placeholder
 strings (`sk-or-...`, `sk-ant-...`).
 
+**On the two key policies.** The instruments store keys differently on
+purpose, not by accident: V0ID_SCALE persists its OpenRouter key in
+`localStorage` so casual repeat use does not mean re-pasting a key every
+reload, while Ghatika keeps its Anthropic key in tab memory only because its
+AI DJ can fire many calls in a session and a more conservative default fits
+that exposure. Pick the one whose trade-off you want. On a shared or public
+machine, prefer the tab-memory model -- and in V0ID_SCALE, the **"forget"**
+link beside the key field clears the stored key from that browser at any time.
+
 ### Trying the AI by hand
 
 The AI features cannot be tested automatically (they need a paid key), so verify
