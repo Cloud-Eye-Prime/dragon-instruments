@@ -1616,7 +1616,7 @@
                 a.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1500);
             }
-            fetch(location.href).then((r) => r.text()).then(dl).catch(() => dl('<!DOCTYPE html>\n' + document.documentElement.outerHTML));
+            fetch(location.href,{cache:'no-store'}).then((r) => r.text()).then(dl).catch(() => dl('<!DOCTYPE html>\n' + document.documentElement.outerHTML));
         }
 
         // Start
