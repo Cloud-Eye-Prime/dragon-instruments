@@ -341,6 +341,38 @@ async function aiDirect(ctx) {
   return { measures: out, intent: typeof json.intent === "string" ? json.intent.slice(0, 80) : "" };
 }
 
+// --- one-tap moods ---
+// Each preset writes every coupled control at once (entrainment mode, band,
+// tempo, rhythm styles, melody voice, FX). The complexity lives in this
+// table instead of on the user's screen; applying one also starts playback.
+const PRESETS = [
+  { key: "stillness", name: "stillness",
+    set: { mode: "binaural", navMode: "journey", minutes: 12, bpm: 72, noiseOn: true, rhythmOn: false, styles: [], density: 0.4, melOn: false, fxFilter: 0, fxDrive: 0, fxDelay: 0, fxReverb: 0.3 } },
+  { key: "deeprest", name: "deep rest",
+    set: { mode: "binaural", navMode: "manual", manualBand: "delta", bpm: 60, noiseOn: true, rhythmOn: true, styles: ["icaro"], density: 0.3, melOn: false, fxFilter: 0.35, fxDrive: 0, fxDelay: 0.1, fxReverb: 0.45 } },
+  { key: "focus", name: "focus",
+    set: { mode: "isochronic", navMode: "manual", manualBand: "alpha", bpm: 84, noiseOn: false, rhythmOn: true, styles: ["mbuti"], density: 0.45, melOn: false, fxFilter: 0.15, fxDrive: 0, fxDelay: 0.08, fxReverb: 0.2 } },
+  { key: "flow", name: "flow",
+    set: { mode: "binaural", navMode: "manual", manualBand: "theta", bpm: 100, noiseOn: false, rhythmOn: true, styles: ["trance"], density: 0.6, melOn: true, melScale: "pentMinor", melRoot: "A", melPattern: "melody", melRate: 2, melOct: 3, instrument: "pluck", fxFilter: 0.1, fxDrive: 0, fxDelay: 0.25, fxReverb: 0.35 } },
+  { key: "groove", name: "groove",
+    set: { mode: "isochronic", navMode: "manual", manualBand: "beta", bpm: 92, noiseOn: false, rhythmOn: true, styles: ["hiphop"], density: 0.7, melOn: true, melScale: "blues", melRoot: "G", melPattern: "melody", melRate: 2, melOct: 4, instrument: "saw", fxFilter: 0.05, fxDrive: 0.25, fxDelay: 0.15, fxReverb: 0.2 } },
+];
+
+// Collapsible panel with a live one-line summary while closed. Top-level
+// (not nested in GhatikaV6) so React preserves child DOM/state across the
+// parent's renders instead of remounting a new component type each time.
+function Section({ id, title, summary, open, onToggle, children }) {
+  return (
+    <div>
+      <button className="g-sec-head" onClick={() => onToggle(id)}>
+        <span className="g-label" style={{ whiteSpace: "nowrap", cursor: "pointer" }}>{(open ? "\u25be" : "\u25b8") + "  " + title}</span>
+        {!open && summary ? <span className="g-note" style={{ fontStyle: "italic", marginLeft: "auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</span> : null}
+      </button>
+      {open && <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "2px 0 12px" }}>{children}</div>}
+    </div>
+  );
+}
+
 function GhatikaV6() {
   const [mode, setMode] = useState("binaural");
   const [carrier, setCarrier] = useState(200);
@@ -397,6 +429,10 @@ function GhatikaV6() {
   const [djLog, setDjLog] = useState([]);              // recent director moves, for the readout
   const PINNABLE = ["styles", "density", "scale", "root", "instrument", "tempo", "fx", "melody"];
   const [pins, setPins] = useState(() => new Set());   // which controls the AI may NOT touch
+  // progressive disclosure: which advanced sections are unfolded
+  const [openSecs, setOpenSecs] = useState(() => new Set());
+  const [presetSel, setPresetSel] = useState("");
+  const toggleSec = useCallback((id) => setOpenSecs((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }), []);
 
   const [disp, setDisp] = useState({ beat: 10, seg: "Arrive", phase: "Inhale", elapsed: 0, segIdx: 0, note: "" });
 
@@ -602,6 +638,40 @@ function GhatikaV6() {
     setTimeout(() => disposeSource(), 900);
   }, [disposeSource]);
 
+  // Apply a one-tap mood: write state AND the refs the audio thread reads
+  // (the djApply pattern), so start() right after sees fresh values instead
+  // of waiting a render for the sync effects.
+  const applyPreset = useCallback((key) => {
+    const p = PRESETS.find((x) => x.key === key); if (!p) return;
+    const s = p.set;
+    setPresetSel(key);
+    setMode(s.mode); modeRef.current = s.mode;
+    setNavMode(s.navMode);
+    if (s.manualBand) setManualBand(s.manualBand);
+    if (s.minutes) setMinutes(s.minutes);
+    navRef.current = { navMode: s.navMode, manualBand: s.manualBand || navRef.current.manualBand, minutes: s.minutes || navRef.current.minutes };
+    setBpm(s.bpm); bpmRef.current = s.bpm;
+    setNoiseOn(s.noiseOn);
+    setRhythmOn(s.rhythmOn); rhythmOnRef.current = s.rhythmOn;
+    const styleSet = new Set(s.styles); setStyles(styleSet); stylesRef.current = styleSet;
+    setDensity(s.density); densityRef.current = s.density;
+    setMelOn(s.melOn); melOnRef.current = s.melOn;
+    if (s.melScale) setMelScale(s.melScale);
+    if (s.melRoot) setMelRoot(s.melRoot);
+    if (s.melPattern) setMelPattern(s.melPattern);
+    if (s.melRate) setMelRate(s.melRate);
+    if (s.melOct != null) setMelOct(s.melOct);
+    const mc = melCfgRef.current;
+    melCfgRef.current = { scale: s.melScale || mc.scale, pattern: s.melPattern || mc.pattern, root: s.melRoot || mc.root, oct: s.melOct != null ? s.melOct : mc.oct, rate: s.melRate || mc.rate, on: s.melOn };
+    melStateRef.current = newMelState(melCfgRef.current);
+    if (s.instrument) setInstrument(s.instrument);
+    setFxFilter(s.fxFilter); fxFilterRef.current = s.fxFilter;
+    setFxDrive(s.fxDrive); fxDriveRef.current = s.fxDrive;
+    setFxDelay(s.fxDelay); fxDelayRef.current = s.fxDelay;
+    setFxReverb(s.fxReverb); fxReverbRef.current = s.fxReverb;
+    if (!playingRef.current) start();
+  }, [start]);
+
   const currentPerf = useCallback(() => {
     if (aiRef.current.active && (aiRef.current.notes.length || aiRef.current.drums.length)) return { notes: aiRef.current.notes, drums: aiRef.current.drums };
     return generatePerformance(EXPORT_BARS, Array.from(stylesRef.current), densityRef.current, melCfgRef.current, true);
@@ -780,6 +850,8 @@ function GhatikaV6() {
         .g-warn { color:#e8a23f; font-size:12.5px; font-style:italic; }
         .g-note { color:var(--muted); font-size:12px; line-height:1.5; }
         .g-div { height:1px; background:rgba(231,227,218,0.08); margin:15px 0 3px; }
+        .g-sec-head { display:flex; align-items:center; gap:10px; width:100%; background:transparent; border:none; border-top:1px solid rgba(231,227,218,0.08); padding:11px 0 9px; cursor:pointer; text-align:left; }
+        .g-sec-head:hover .g-label { color:var(--ink); }
       `}</style>
 
       <div className="g-root">
@@ -807,7 +879,28 @@ function GhatikaV6() {
           </div>
         )}
 
-        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* moods + transport: the one-gesture surface. Everything below is
+            the same engine, folded into sections that report their state. */}
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="g-row">
+            <span className="g-label" style={{ width: 58 }}>moods</span>
+            {PRESETS.map((p) => <Seg key={p.key} active={presetSel === p.key} color={curBand.color} onClick={() => applyPreset(p.key)}>{p.name}</Seg>)}
+          </div>
+          <div className="g-row" style={{ gap: 14 }}>
+            <button className="g-play" onClick={() => (playing ? stop() : start())}>{playing ? "\u9748  rest" : "\u80ce\u606f  begin"}</button>
+            <span className="g-label">vol</span>
+            <input className="g-slider" style={{ width: 90 }} type="range" min="0" max="0.8" step="0.01" value={vol} onChange={(e) => setVol(parseFloat(e.target.value))} />
+            <Seg dim onClick={exportMidi}>export MIDI</Seg>
+            <Seg dim onClick={exportWav}>{rendering ? "rendering\u2026" : "export WAV"}</Seg>
+            {highBeatWarn && <span className="g-warn">binaural fades &gt;30Hz &mdash; use isochronic</span>}
+          </div>
+          <div className="g-note" style={{ marginTop: -4, fontStyle: "italic" }}>tap a mood and it plays &mdash; every dial it turned is in the sections below. Export bounces an {EXPORT_BARS}-bar take (the AI phrase if one is loaded), drums on GM ch10, melody ch1.</div>
+        </div>
+
+        <div style={{ marginTop: 10 }} />
+
+        <Section id="breath" title="breath &amp; drone" open={openSecs.has("breath")} onToggle={toggleSec}
+          summary={mode + " \u00b7 " + (navMode === "journey" ? "journey " + minutes + " min" : (BANDS.find((b) => b.key === manualBand) || BANDS[1]).name + " hold") + " \u00b7 " + bpm + " BPM"}>
           <div className="g-row"><span className="g-label" style={{ width: 58 }}>channel</span>{["binaural", "monaural", "isochronic"].map((m) => <Seg key={m} active={mode === m} onClick={() => setMode(m)}>{m}</Seg>)}</div>
           <div className="g-row"><span className="g-label" style={{ width: 58 }}>guide</span><Seg active={navMode === "journey"} onClick={() => setNavMode("journey")}>journey</Seg><Seg active={navMode === "manual"} onClick={() => setNavMode("manual")}>hold a band</Seg>{navMode === "journey" && [6, 12, 24].map((m) => <Seg key={m} active={minutes === m} onClick={() => setMinutes(m)}>{m} min</Seg>)}</div>
           {navMode === "manual" && <div className="g-row"><span className="g-label" style={{ width: 58 }}>band</span>{BANDS.map((b) => <Seg key={b.key} active={manualBand === b.key} color={b.color} onClick={() => setManualBand(b.key)}>{b.name} {b.hz}Hz</Seg>)}</div>}
@@ -815,14 +908,12 @@ function GhatikaV6() {
             <span className="g-label">tempo {bpm} BPM &middot; {(bpm / 8).toFixed(1)}/min breath</span>
             <input className="g-slider" style={{ width: 130 }} type="range" min="56" max="132" step="1" value={bpm} onChange={(e) => setBpm(parseInt(e.target.value))} />
           </div>
-          <div className="g-row" style={{ gap: 16 }}><span className="g-label">carrier {carrier}Hz</span><input className="g-slider" style={{ width: 96 }} type="range" min="80" max="400" step="2" value={carrier} onChange={(e) => setCarrier(parseInt(e.target.value))} /><span className="g-label">vol</span><input className="g-slider" style={{ width: 80 }} type="range" min="0" max="0.8" step="0.01" value={vol} onChange={(e) => setVol(parseFloat(e.target.value))} /><Seg active={noiseOn} onClick={() => setNoiseOn((v) => !v)}>wave bed</Seg></div>
-        </div>
-
-        <div className="g-div" />
+          <div className="g-row" style={{ gap: 16 }}><span className="g-label">carrier {carrier}Hz</span><input className="g-slider" style={{ width: 96 }} type="range" min="80" max="400" step="2" value={carrier} onChange={(e) => setCarrier(parseInt(e.target.value))} /><Seg active={noiseOn} onClick={() => setNoiseOn((v) => !v)}>wave bed</Seg></div>
+        </Section>
 
         {/* VOLUME MIXER */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div className="g-label">mixer</div>
+        <Section id="mixer" title="mixer" open={openSecs.has("mixer")} onToggle={toggleSec}
+          summary={"drums " + Math.round(drumVol * 100) + " \u00b7 melody " + Math.round(melVol * 100) + " \u00b7 wave " + Math.round(waveBedVol * 100)}>
           <div className="g-card" style={{ overflowX: "auto" }}>
             <div style={{ display: "flex", gap: 6, alignItems: "flex-end", minWidth: 480 }}>
               {/* wave bed */}
@@ -856,12 +947,11 @@ function GhatikaV6() {
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="g-div" />
+        </Section>
 
         {/* rhythm */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Section id="rhythm" title="rhythm" open={openSecs.has("rhythm")} onToggle={toggleSec}
+          summary={rhythmOn ? (Array.from(styles).join(" + ") || "no styles") + " \u00b7 density " + Math.round(density * 100) + "%" : "off"}>
           <div className="g-row">
             <span className="g-label" style={{ width: 58 }}>rhythm</span><Seg active={rhythmOn} onClick={() => setRhythmOn((v) => !v)}>{rhythmOn ? "on" : "off"}</Seg>
             <svg viewBox="0 0 230 24" style={{ height: 22, width: 230 }}>{VOICES.map((v, i) => (<g key={v} transform={`translate(${16 + i * 31} 12)`}><circle ref={(n) => (lampElRef.current[i] = n)} r="6.5" fill={VOICE_COLOR[v]} opacity="0.16" /><text y="16" textAnchor="middle" className="g-mono" fontSize="6.5" fill="var(--muted)">{VOICE_LABEL[v]}</text></g>))}</svg>
@@ -905,12 +995,11 @@ function GhatikaV6() {
             </div>
             <div className="g-note" style={{ marginTop: 3, fontStyle: "italic" }}>Live hits fade in real time. Drawn cells lock on &mdash; play alongside or override the generative engine.</div>
           </div>
-        </div>
-
-        <div className="g-div" />
+        </Section>
 
         {/* melody */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Section id="melody" title="melody" open={openSecs.has("melody")} onToggle={toggleSec}
+          summary={melOn ? SCALE_LABEL[melScale] + " / " + melRoot + " \u00b7 " + ((INSTRUMENTS.find((i) => i.k === instrument) || {}).n || instrument) : "off"}>
           <div className="g-row">
             <span className="g-label" style={{ width: 58 }}>melody</span><Seg active={melOn} onClick={() => setMelOn((v) => !v)}>{melOn ? "on" : "off"}</Seg>
             <select className="g-sel" value={melScale} onChange={(e) => setMelScale(e.target.value)}>{SCALE_OPTIONS.map((grp) => <optgroup key={grp.g} label={grp.g}>{grp.items.map((k) => <option key={k} value={k}>{SCALE_LABEL[k]}</option>)}</optgroup>)}</select>
@@ -972,14 +1061,11 @@ function GhatikaV6() {
               </div>
             );
           })()}
-        </div>
-
-        <div className="g-div" />
-
-        <div className="g-div" />
+        </Section>
 
         {/* AI DJ director */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Section id="dj" title="AI DJ" open={openSecs.has("dj")} onToggle={toggleSec}
+          summary={djOn ? "performing \u00b7 " + (djMode === "arc" ? "autonomous arc" : "following the breath") : "off \u00b7 hand it the decks"}>
           <div className="g-row">
             <span className="g-label" style={{ width: 58 }}>AI DJ</span>
             <Seg active={djOn} color="#d24a6a" onClick={() => { setDjOn((v) => { const nv = !v; if (nv) { setAiActive(false); aiRef.current.active = false; } return nv; }); }}>{djOn ? "performing" : "hand over the decks"}</Seg>
@@ -1006,13 +1092,12 @@ function GhatikaV6() {
               <div className="g-row"><Seg onClick={clearPlan} dim>clear plan buffer</Seg></div>
             </>
           )}
-          <div className="g-note" style={{ marginTop: -2 }}>{"The DJ drives the toggles in real time \u2014 watch the controls move as it performs. It thinks 4 measures ahead, tightening to 2 once stable; if a call is slow or fails, the live generative engine fills the gap so sound never drops. Needs the in-app API (this chat runtime)."}</div>
-        </div>
-
-        <div className="g-div" />
+          <div className="g-note" style={{ marginTop: -2 }}>{"The DJ drives the toggles in real time \u2014 watch the controls move as it performs. It thinks 4 measures ahead, tightening to 2 once stable; if a call is slow or fails, the live generative engine fills the gap so sound never drops. Needs an Anthropic key set in the bar at the top of the page."}</div>
+        </Section>
 
         {/* AI compose */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Section id="compose" title="AI compose" open={openSecs.has("compose")} onToggle={toggleSec}
+          summary={composing ? "composing\u2026" : aiActive ? "AI take looping" : "one-shot 8-bar phrase"}>
           <div className="g-row"><span className="g-label" style={{ width: 58 }}>compose</span>
             <input className="g-sel" style={{ flex: 1, minWidth: 180 }} value={mood} onChange={(e) => setMood(e.target.value)} placeholder="mood / brief for the AI composer" />
           </div>
@@ -1021,14 +1106,13 @@ function GhatikaV6() {
             {aiActive && <Seg color="#e8743f" onClick={clearAi}>back to generative</Seg>}
             {aiStatus && <span className="g-note" style={{ fontStyle: "italic", color: aiStatus.startsWith("compose failed") || aiStatus.startsWith("model returned") ? "#e8743f" : "var(--muted)" }}>{aiStatus}</span>}
           </div>
-          <div className="g-note" style={{ marginTop: -2 }}>One-shot: composes a single 8-bar phrase and loops it (distinct from the DJ, which keeps evolving). While a take is active it drives playback and export.</div>
-        </div>
-
-        <div className="g-div" />
+          <div className="g-note" style={{ marginTop: -2 }}>One-shot: composes a single 8-bar phrase and loops it (distinct from the DJ, which keeps evolving). While a take is active it drives playback and export. Needs an Anthropic key set in the bar at the top of the page.</div>
+        </Section>
 
         {/* effects rack */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div className="g-row"><span className="g-label">{"effects rack \u00b7 filter \u2192 drive \u2192 delay \u2192 reverb (on drums + melody)"}</span></div>
+        <Section id="fx" title="effects" open={openSecs.has("fx")} onToggle={toggleSec}
+          summary={[["filter", fxFilter], ["drive", fxDrive], ["delay", fxDelay], ["reverb", fxReverb]].filter(([, v]) => v > 0.01).map(([n, v]) => n + " " + Math.round(v * 100)).join(" \u00b7 ") || "dry"}>
+          <div className="g-row"><span className="g-label">{"filter \u2192 drive \u2192 delay \u2192 reverb (on drums + melody)"}</span></div>
           <div className="g-row" style={{ gap: 14 }}>
             <span className="g-label">filter</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="1" step="0.01" value={fxFilter} onChange={(e) => setFxFilter(parseFloat(e.target.value))} />
             <span className="g-label">drive</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="1" step="0.01" value={fxDrive} onChange={(e) => setFxDrive(parseFloat(e.target.value))} />
@@ -1037,12 +1121,11 @@ function GhatikaV6() {
             <span className="g-label">delay</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="0.8" step="0.01" value={fxDelay} onChange={(e) => setFxDelay(parseFloat(e.target.value))} />
             <span className="g-label">reverb</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="0.9" step="0.01" value={fxReverb} onChange={(e) => setFxReverb(parseFloat(e.target.value))} />
           </div>
-        </div>
-
-        <div className="g-div" />
+        </Section>
 
         {/* live MIDI out */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Section id="midi" title="MIDI out" open={openSecs.has("midi")} onToggle={toggleSec}
+          summary={midiReady ? (midiSend2Dev ? "sending to device" : "connected") : "off"}>
           <div className="g-row">
             <span className="g-label" style={{ width: 58 }}>MIDI out</span>
             {!midiReady ? <Seg color="#4a8fd4" onClick={connectMidi}>connect MIDI</Seg> : (
@@ -1053,16 +1136,8 @@ function GhatikaV6() {
             )}
           </div>
           {midiMsg && <span className="g-note" style={{ fontStyle: "italic" }}>{midiMsg}</span>}
-          <div className="g-note" style={{ marginTop: -2 }}>Sends 24-PPQN MIDI clock + start/stop + notes to the chosen device. Web MIDI is blocked inside the chat sandbox &mdash; run this <em>.jsx</em> as a standalone hosted page (e.g. the Dragon Ally <span className="g-mono">/dj</span> room) for live device sync.</div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 16, flexWrap: "wrap" }}>
-          <button className="g-play" onClick={() => (playing ? stop() : start())}>{playing ? "\u9748  rest" : "\u80ce\u606f  begin"}</button>
-          <Seg onClick={exportMidi}>export MIDI</Seg>
-          <Seg onClick={exportWav}>{rendering ? "rendering\u2026" : `export WAV (${EXPORT_BARS} bars)`}</Seg>
-          {highBeatWarn && <span className="g-warn">binaural fades &gt;30Hz &mdash; use isochronic</span>}
-        </div>
-        <div className="g-note" style={{ marginTop: 6 }}>Export bounces an {EXPORT_BARS}-bar take at {bpm} BPM in the current voice &mdash; the active AI phrase if one is loaded, otherwise a fresh generative take (which re-rolls each time). MIDI carries drums on GM channel 10 and melody on channel 1.</div>
+          <div className="g-note" style={{ marginTop: -2 }}>Sends 24-PPQN MIDI clock + start/stop + notes to the chosen device. Works on a normally hosted or local page; chat-preview sandboxes block Web MIDI, and the UI says so when access is denied.</div>
+        </Section>
 
         <div className="g-card" style={{ marginTop: 14 }}>
           <div className="g-label" style={{ marginBottom: 6 }}>honestly, and with respect</div>
