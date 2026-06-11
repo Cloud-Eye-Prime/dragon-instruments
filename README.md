@@ -22,6 +22,12 @@ Two self-contained instruments that run entirely in the browser:
   (`OfflineAudioContext`) and Standard MIDI File export, a master volume and
   mute, Web MIDI input, and an AI "Summon" that asks a language model for a
   short phrase locked to the active scale. One file, no dependencies, no build.
+  The fastest path in is a **Scene** chip (DEEP VOID / PULSE / RITUAL / GLASS):
+  one tap sets instrument, tempo, division, and the Euclidean pattern, then
+  plays. Keys 1-8 fire the pads (space = play/stop, R = record), the BPM field
+  has a tap-tempo button, and dragging across the Euclidean row paints its
+  density directly. Rarely-touched controls (beats per bar, note division, the
+  AI model + key) live behind collapsed "advanced" disclosures.
 
 - **Ghatika** (`public/ghatika.html`) -- a breath-and-entrainment sequencer
   built on React + Tone.js (both loaded from a CDN). It runs a single clock
@@ -31,7 +37,12 @@ Two self-contained instruments that run entirely in the browser:
   routes everything through a filter / drive / delay / reverb rack. It exports
   real MIDI and WAV, can send live MIDI out over the Web MIDI API, and has two
   AI features: an "AI compose" phrase and an "AI DJ" director that writes
-  measures ahead and drives the controls live.
+  measures ahead and drives the controls live. The page leads with a **moods**
+  row (stillness / deep rest / focus / flow / groove) -- one tap writes every
+  coupled control and starts playback -- with the begin/rest transport and
+  exports right under the breath orb. Every deeper control cluster folds into
+  a collapsible section that shows a live one-line summary of its state while
+  closed.
 
 See [docs/VOIDSCALE.md](docs/VOIDSCALE.md) and [docs/GHATIKA.md](docs/GHATIKA.md)
 for the concepts behind each instrument.
@@ -77,8 +88,9 @@ link beside the key field clears the stored key from that browser at any time.
 The AI features cannot be tested automatically (they need a paid key), so verify
 them yourself:
 
-- **V0ID_SCALE:** open the page, paste an OpenRouter key (`sk-or-...`) into
-  "AI Key", optionally change the model, type a vibe into the prompt, and click
+- **V0ID_SCALE:** open the page, expand the "AI config (model + key)"
+  disclosure in The Shadow panel, paste an OpenRouter key (`sk-or-...`),
+  optionally change the model, type a vibe into the prompt, and click
   Summon. Expect a "Summoning..." status, then "Summoned N notes", a new entry
   in the loop list, and audible playback. With no key, Summon produces a local
   random pattern and a "add an OpenRouter key for real AI" notice.

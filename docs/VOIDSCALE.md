@@ -46,7 +46,25 @@ the steps (so density 3, length 8 gives `x..x..x.`, density 5/8 gives
 `x.xx.xx.`). The pattern is drawn as a row of lit / unlit cells **and** it
 sonifies: each lit step fires a kick when the transport runs, and the cell under
 the playhead lights up as it passes. The "Cycle Length" field also sets the
-length of the step sequencer (see below).
+length of the step sequencer (see below). The row itself is a control:
+**dragging across the cells paints the density** (pointer position maps to
+pulse count), and the number fields update the pattern live as you type.
+
+## Scenes -- one-tap presets
+
+Four scene chips (DEEP VOID, PULSE, RITUAL, GLASS) each set the instrument,
+tempo, note division, and Euclidean density/length in one tap, then start the
+transport. The coupled-knob complexity lives in a small config table in the
+code (`SCENES` / `applyScene`) instead of in the player's head; everything a
+scene sets can still be adjusted by hand afterwards.
+
+## Keyboard playing and tap tempo
+
+Keys **1-8** fire the pads (each pad shows its key in the corner), **space**
+toggles play, and **R** toggles record -- guarded so typing in any text field
+never triggers the instrument. Pads respond on `pointerdown` rather than
+`click`, so they speak on touch, not on release. A **TAP** button beside the
+BPM field averages the last few taps into a tempo.
 
 ## Ouroboros breath visual
 
@@ -64,8 +82,10 @@ clock for steady timing.
 - **Play** starts and stops the loop. While running, the Euclidean kicks and
   every armed loop play together, and the playhead sweeps the Euclidean row.
 - **Record** captures live pad / MIDI input into a take; toggling it off saves
-  the take as a loop.
-- **Stop** halts the transport and clears the playhead.
+  the take as a loop. Arming record also starts the transport if it is not
+  already running, so there is a beat to play against.
+- **Stop** halts the transport and clears the playhead. If a take was in
+  flight, Stop saves it as a loop instead of discarding it.
 
 Each saved loop remembers the instrument it was recorded with and is **armed**
 by default. Click a loop to toggle it between ARMED and MUTED -- muted loops stay

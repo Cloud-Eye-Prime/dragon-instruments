@@ -4,6 +4,22 @@ A single-file breath-and-entrainment sequencer built on React and Tone.js (both
 loaded from a CDN, compiled in-page by Babel standalone). Everything below lives
 in `public/ghatika.html`. One clock drives the whole thing.
 
+## The surface: moods, then sections
+
+The page leads with one gesture. A **moods** row -- stillness, deep rest,
+focus, flow, groove -- sits at the top with the begin/rest transport, master
+volume, and both exports directly under the breath orb. Tapping a mood writes
+every coupled control at once (entrainment mode, band, tempo, rhythm styles,
+melody scale/root/voice, all four FX amounts) and starts playback; tapping
+another while playing hot-swaps the set live. The preset table (`PRESETS` /
+`applyPreset`) holds that complexity in code.
+
+Everything deeper -- breath & drone, mixer, rhythm, melody, AI DJ, AI compose,
+effects, MIDI out -- folds into collapsible sections. A closed section shows a
+live one-line summary of its state ("hiphop . density 70%", "Blues / G . saw
+pad"), so the full state of the instrument stays glanceable without the wall
+of controls.
+
 ## The breath cycle and the five elements
 
 A breath is 8 beats = 32 sixteenth-notes. The breath is divided into four phases,
