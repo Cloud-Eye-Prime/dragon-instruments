@@ -431,47 +431,77 @@
             color: var(--plasma-red);
         }
 
-        .file-zone {
-            border: 1px dashed var(--void-border);
-            border-radius: var(--radius-alien);
-            padding: 10px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 200ms ease;
+        .scene-chip {
+            border-color: var(--plasma-purple);
+            color: var(--plasma-purple);
         }
 
-        .file-zone:hover {
-            border-color: var(--plasma-cyan);
-            background: rgba(0, 217, 255, 0.05);
+        .scene-chip:hover {
+            border-color: var(--plasma-purple);
+            color: var(--text-void);
+            box-shadow: 0 0 12px rgba(157, 78, 221, 0.4);
         }
 
-        .file-zone.dragover {
-            border-color: var(--plasma-green);
-            background: rgba(0, 255, 65, 0.1);
+        .scene-chip.active {
+            background: var(--plasma-purple);
+            color: var(--void-black);
+            box-shadow: 0 0 16px rgba(157, 78, 221, 0.5);
         }
 
-        .file-list {
-            max-height: 100px;
-            overflow-y: auto;
+        .pad {
+            position: relative;
+        }
+
+        .pad::after {
+            content: attr(data-key);
+            position: absolute;
+            bottom: 2px;
+            right: 4px;
+            font-size: 8px;
+            color: var(--text-dim);
+            opacity: 0.8;
+        }
+
+        .pad:disabled::after {
+            content: '';
+        }
+
+        .pad.active::after {
+            color: var(--void-black);
+        }
+
+        details.adv {
             margin-top: 8px;
         }
 
-        .file-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 6px;
-            background: var(--void-black);
-            border: 1px solid var(--void-border);
-            border-radius: var(--radius-alien);
-            margin-bottom: 3px;
+        details.adv summary {
             font-size: 10px;
+            color: var(--text-dim);
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            outline: none;
         }
 
-        .file-name {
-            flex: 1;
+        details.adv summary:hover {
+            color: var(--plasma-cyan);
+        }
+
+        details.adv[open] summary {
+            margin-bottom: 8px;
+        }
+
+        .kbd-hint {
+            font-size: 9px;
             color: var(--text-dim);
-            word-break: break-all;
+            margin-top: 6px;
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+
+        .euclidean-viz {
+            cursor: ew-resize;
+            touch-action: none;
         }
 
         .file-delete {
@@ -530,6 +560,10 @@
                     <button class="btn" id="stopBtn">⏹ Stop</button>
                     <button class="btn" id="recordBtn">● Record</button>
                 </div>
+                <div class="control-group" style="margin-top: 10px;">
+                    <label>Scenes - one tap sets everything and plays</label>
+                    <div class="btn-group" id="sceneRow"></div>
+                </div>
             </div>
 
             <!-- WAVEFORM VISUALIZER -->
@@ -552,6 +586,7 @@
                     </div>
                 </div>
                 <div class="euclidean-viz" id="euclideanViz"></div>
+                <div class="status-line">drag across the cells to set density</div>
             </div>
 
             <!-- LOOPER TRACKS -->
@@ -572,30 +607,36 @@
                 <div class="control-group">
                     <label>Tempo (BPM)</label>
                     <input type="range" id="tempoSlider" min="40" max="240" value="96">
-                    <input type="number" id="tempoBPM" value="96" min="40" max="240">
+                    <div style="display: flex; gap: 6px;">
+                        <input type="number" id="tempoBPM" value="96" min="40" max="240" style="flex: 1;">
+                        <button class="btn" id="tapTempoBtn" title="tap the beat to set tempo">TAP</button>
+                    </div>
                 </div>
-                <div class="control-group">
-                    <label>Beats Per Bar</label>
-                    <select id="beatsSelect">
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                        <option value="4" selected>4</option>
-                        <option value="5">5</option>
-                        <option value="6">6</option>
-                        <option value="7">7</option>
-                        <option value="8">8</option>
-                    </select>
-                </div>
-                <div class="control-group">
-                    <label>Note Division</label>
-                    <select id="divisionSelect">
-                        <option value="4">Quarter</option>
-                        <option value="8" selected>Eighth</option>
-                        <option value="16">Sixteenth</option>
-                        <option value="32">32nd</option>
-                    </select>
-                </div>
-                <div class="control-group">
+                <details class="adv">
+                    <summary>Advanced timing</summary>
+                    <div class="control-group">
+                        <label>Beats Per Bar</label>
+                        <select id="beatsSelect">
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4" selected>4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
+                        </select>
+                    </div>
+                    <div class="control-group" style="margin-top: 6px;">
+                        <label>Note Division</label>
+                        <select id="divisionSelect">
+                            <option value="4">Quarter</option>
+                            <option value="8" selected>Eighth</option>
+                            <option value="16">Sixteenth</option>
+                            <option value="32">32nd</option>
+                        </select>
+                    </div>
+                </details>
+                <div class="control-group" style="margin-top: 8px;">
                     <label>Master Volume</label>
                     <input type="range" id="volumeSlider" min="0" max="100" value="25">
                     <div style="display: flex; gap: 6px; align-items: center; margin-top: 6px;">
@@ -619,15 +660,16 @@
                     </select>
                 </div>
                 <div class="pad-grid">
-                    <button class="pad" data-note="60" data-name="C">C</button>
-                    <button class="pad" data-note="62" data-name="D">D</button>
-                    <button class="pad" data-note="64" data-name="E">E</button>
-                    <button class="pad" data-note="65" data-name="F">F</button>
-                    <button class="pad" data-note="67" data-name="G">G</button>
-                    <button class="pad" data-note="69" data-name="A">A</button>
-                    <button class="pad" data-note="71" data-name="B">B</button>
-                    <button class="pad" data-note="72" data-name="C5">C5</button>
+                    <button class="pad" data-note="60" data-name="C" data-key="1">C</button>
+                    <button class="pad" data-note="62" data-name="D" data-key="2">D</button>
+                    <button class="pad" data-note="64" data-name="E" data-key="3">E</button>
+                    <button class="pad" data-note="65" data-name="F" data-key="4">F</button>
+                    <button class="pad" data-note="67" data-name="G" data-key="5">G</button>
+                    <button class="pad" data-note="69" data-name="A" data-key="6">A</button>
+                    <button class="pad" data-note="71" data-name="B" data-key="7">B</button>
+                    <button class="pad" data-note="72" data-name="C5" data-key="8">C5</button>
                 </div>
+                <div class="kbd-hint">keys 1-8 play pads &middot; space = play/stop &middot; R = record</div>
             </div>
 
             <!-- AI / SHADOW -->
@@ -637,26 +679,19 @@
                     <label>Vibe</label>
                     <input type="text" id="aiPrompt" placeholder="dark ambient" value="dark ambient">
                 </div>
-                <div class="control-group">
-                    <label>Model (OpenRouter)</label>
-                    <input type="text" id="aiModel" placeholder="openai/gpt-4o-mini" value="openai/gpt-4o-mini">
-                </div>
-                <div class="control-group">
-                    <label>OpenRouter Key (local only) <a href="#" id="forgetKey" style="font-size:0.8em;opacity:0.7;float:right;">forget</a></label>
-                    <input type="password" id="aiKey" placeholder="sk-or-...">
-                </div>
-                <button class="btn" id="generateBtn" style="width: 100%;">✨ Summon</button>
-                <div id="aiStatus" class="status-line"></div>
-            </div>
-
-            <!-- FILE UPLOAD -->
-            <div class="panel">
-                <div class="panel-title"><span class="glyph">📁</span> Upload Seeds</div>
-                <div class="file-zone" id="dropZone">
-                    <small>Drop or click</small>
-                    <input type="file" id="fileInput" accept=".wav,.mp3,.mid,.midi" style="display: none;">
-                </div>
-                <div id="fileList" class="file-list"></div>
+                <button class="btn" id="generateBtn" style="width: 100%; margin-top: 6px;">✨ Summon</button>
+                <details class="adv">
+                    <summary>AI config (model + key)</summary>
+                    <div class="control-group">
+                        <label>Model (OpenRouter)</label>
+                        <input type="text" id="aiModel" placeholder="openai/gpt-4o-mini" value="openai/gpt-4o-mini">
+                    </div>
+                    <div class="control-group" style="margin-top: 6px;">
+                        <label>OpenRouter Key (local only) <a href="#" id="forgetKey" style="font-size:0.8em;opacity:0.7;float:right;">forget</a></label>
+                        <input type="password" id="aiKey" placeholder="sk-or-...">
+                    </div>
+                </details>
+                <div id="aiStatus" class="status-line">no key? Summon still works - it weaves a local pattern</div>
             </div>
 
             <!-- EXPORT / CRYSTALLIZE -->
@@ -728,7 +763,6 @@
             isRecording: false,
             recordedNotes: [],
             tracks: [],
-            uploadedFiles: [],
             currentInstrument: 'piano',
             euclidDensity: 5,
             euclidLength: 16,
@@ -768,7 +802,11 @@
 
             document.getElementById('stopBtn').addEventListener('click', () => {
                 stopTransport();
-                state.isRecording = false;
+                // Stop never discards a take: save anything recorded so far.
+                if (state.isRecording) {
+                    state.isRecording = false;
+                    saveTrack();
+                }
                 document.getElementById('playBtn').classList.remove('active');
                 document.getElementById('recordBtn').classList.remove('active');
             });
@@ -778,6 +816,11 @@
                     state.isRecording = true;
                     state.recordedNotes = [];
                     document.getElementById('recordBtn').classList.add('active');
+                    // Recording starts the beat so there is something to play against.
+                    if (!transport.running) {
+                        startTransport();
+                        document.getElementById('playBtn').classList.add('active');
+                    }
                 } else {
                     state.isRecording = false;
                     saveTrack();
@@ -815,11 +858,15 @@
                 });
             });
 
+            // pointerdown (not click) so pads speak on touch, not on release
             document.querySelectorAll('.pad').forEach(pad => {
-                pad.addEventListener('click', () => {
+                pad.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
                     const note = parseInt(pad.dataset.note);
+                    if (!Number.isFinite(note)) return;
                     playNote(note, 100);
                     recordNote(note, 100);
+                    highlightPad(note);
                 });
             });
 
@@ -832,20 +879,70 @@
                 }
             });
 
-            // File handling
-            const dropZone = document.getElementById('dropZone');
-            dropZone.addEventListener('click', () => document.getElementById('fileInput').click());
-            document.getElementById('fileInput').addEventListener('change', (e) => handleFiles(e.target.files));
-            dropZone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dropZone.classList.add('dragover');
+            // Keyboard playing: 1-8 fire pads, space toggles play, R toggles record.
+            // Typing in a field never triggers the instrument.
+            document.addEventListener('keydown', (e) => {
+                const t = e.target;
+                if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+                if (e.repeat) return;
+                if (e.key >= '1' && e.key <= '8') {
+                    const pad = document.querySelectorAll('.pad')[parseInt(e.key) - 1];
+                    if (pad && !pad.disabled) {
+                        const note = parseInt(pad.dataset.note);
+                        playNote(note, 100);
+                        recordNote(note, 100);
+                        highlightPad(note);
+                    }
+                    e.preventDefault();
+                } else if (e.key === ' ') {
+                    document.getElementById('playBtn').click();
+                    e.preventDefault();
+                } else if (e.key === 'r' || e.key === 'R') {
+                    document.getElementById('recordBtn').click();
+                    e.preventDefault();
+                }
             });
-            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-            dropZone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                dropZone.classList.remove('dragover');
-                handleFiles(e.dataTransfer.files);
+
+            // Tap tempo: average the last few taps into a BPM.
+            const tapState = { times: [] };
+            document.getElementById('tapTempoBtn').addEventListener('click', () => {
+                const now = performance.now();
+                if (tapState.times.length && now - tapState.times[tapState.times.length - 1] > 2000) tapState.times = [];
+                tapState.times.push(now);
+                if (tapState.times.length > 6) tapState.times.shift();
+                if (tapState.times.length >= 2) {
+                    const first = tapState.times[0];
+                    const span = now - first;
+                    const bpm = Math.round(60000 / (span / (tapState.times.length - 1)));
+                    const clamped = Math.max(40, Math.min(240, bpm));
+                    document.getElementById('tempoBPM').value = clamped;
+                    document.getElementById('tempoSlider').value = clamped;
+                    updateTiming();
+                }
             });
+
+            // Drag across the Euclidean row to paint density directly.
+            const euclidViz = document.getElementById('euclideanViz');
+            function densityFromPointer(e) {
+                const rect = euclidViz.getBoundingClientRect();
+                if (rect.width <= 0) return;
+                const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const len = Math.max(1, state.euclidLength);
+                const d = Math.max(1, Math.min(len, Math.round(frac * len)));
+                if (d !== state.euclidDensity) {
+                    document.getElementById('euclideanDensity').value = d;
+                    renderEuclidean();
+                }
+            }
+            euclidViz.addEventListener('pointerdown', (e) => {
+                try { euclidViz.setPointerCapture(e.pointerId); } catch (e2) {}
+                densityFromPointer(e);
+            });
+            euclidViz.addEventListener('pointermove', (e) => {
+                if (e.buttons) densityFromPointer(e);
+            });
+
+            renderScenes();
 
             // Export
             document.getElementById('exportWavBtn').addEventListener('click', exportWAV);
@@ -1225,8 +1322,9 @@
             rebuildGrid();
         }
 
-        document.getElementById('euclideanDensity').addEventListener('change', renderEuclidean);
-        document.getElementById('euclideanLength').addEventListener('change', renderEuclidean);
+        // 'input' (not 'change') so the pattern responds while you type/spin.
+        document.getElementById('euclideanDensity').addEventListener('input', renderEuclidean);
+        document.getElementById('euclideanLength').addEventListener('input', renderEuclidean);
 
         // ===== TRACK MANAGEMENT =====
         function saveTrack() {
@@ -1353,34 +1451,48 @@
             }
         }
 
-                // ===== FILE MANAGEMENT =====
-        function handleFiles(files) {
-            for (let file of files) {
-                if (/\.(wav|mp3|mid|midi)$/i.test(file.name)) {
-                    state.uploadedFiles.push(file);
-                }
+        // ===== SCENES =====
+        // One-tap presets. All the coupled knobs (instrument, tempo, division,
+        // Euclidean density/length) collapse into a single gesture; the
+        // complexity lives here instead of in the user's head.
+        const SCENES = [
+            { key: 'deepvoid', label: 'DEEP VOID', instrument: 'hirajoshi', tempo: 72,  density: 3, length: 16, division: 8 },
+            { key: 'pulse',    label: 'PULSE',     instrument: 'synth',     tempo: 124, density: 9, length: 16, division: 16 },
+            { key: 'ritual',   label: 'RITUAL',    instrument: 'drums',     tempo: 96,  density: 5, length: 8,  division: 8 },
+            { key: 'glass',    label: 'GLASS',     instrument: 'just',      tempo: 84,  density: 4, length: 12, division: 8 }
+        ];
+
+        function applyScene(key) {
+            const sc = SCENES.find((s) => s.key === key);
+            if (!sc) return;
+            const instSel = document.getElementById('instrumentSelect');
+            instSel.value = sc.instrument;
+            instSel.dispatchEvent(new Event('change'));
+            document.getElementById('tempoBPM').value = sc.tempo;
+            document.getElementById('tempoSlider').value = sc.tempo;
+            document.getElementById('divisionSelect').value = String(sc.division);
+            updateTiming();
+            document.getElementById('euclideanDensity').value = sc.density;
+            document.getElementById('euclideanLength').value = sc.length;
+            renderEuclidean();
+            document.querySelectorAll('#sceneRow .scene-chip').forEach((b) => {
+                b.classList.toggle('active', b.dataset.scene === key);
+            });
+            if (!transport.running) {
+                startTransport();
+                document.getElementById('playBtn').classList.add('active');
             }
-            renderFileList();
         }
 
-        function renderFileList() {
-            const container = document.getElementById('fileList');
-            if (state.uploadedFiles.length === 0) {
-                container.innerHTML = '';
-                return;
-            }
-            container.innerHTML = state.uploadedFiles.map((file, idx) => `
-                <div class="file-item">
-                    <span class="file-name">${escapeHtml(file.name)}</span>
-                    <button class="file-delete" onclick="deleteFile(${idx})">✕</button>
-                </div>
-            `).join('');
+        function renderScenes() {
+            const row = document.getElementById('sceneRow');
+            row.innerHTML = SCENES.map((s) =>
+                '<button class="btn scene-chip" data-scene="' + s.key + '">' + escapeHtml(s.label) + '</button>'
+            ).join('');
+            row.querySelectorAll('.scene-chip').forEach((b) => {
+                b.addEventListener('click', () => applyScene(b.dataset.scene));
+            });
         }
-
-        window.deleteFile = function(idx) {
-            state.uploadedFiles.splice(idx, 1);
-            renderFileList();
-        };
 
         // ===== EXPORT FUNCTIONS =====
         const EXPORT_CYCLES = 2; // how many loops of the grid to bounce down
