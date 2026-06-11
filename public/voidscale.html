@@ -672,6 +672,44 @@
                 <div class="kbd-hint">keys 1-8 play pads &middot; space = play/stop &middot; R = record</div>
             </div>
 
+
+            <!-- TONE SHAPING -->
+            <div class="panel">
+                <div class="panel-title"><span class="glyph">~</span> Tone Shaping</div>
+                <div class="control-group">
+                    <label>Filter <span id="toneCutoffVal" class="status-line" style="float:right">100%</span></label>
+                    <input type="range" id="toneCutoff" min="0" max="100" value="100">
+                </div>
+                <div class="control-group">
+                    <label>Resonance <span id="toneResVal" class="status-line" style="float:right">0%</span></label>
+                    <input type="range" id="toneResonance" min="0" max="100" value="0">
+                </div>
+                <div class="control-group">
+                    <label>Envelope <span id="toneEnvVal" class="status-line" style="float:right">50%</span></label>
+                    <input type="range" id="toneEnvDepth" min="0" max="100" value="50">
+                </div>
+                <div class="control-group">
+                    <label>Attack <span id="toneAtkVal" class="status-line" style="float:right">12ms</span></label>
+                    <input type="range" id="toneAttack" min="1" max="500" value="12">
+                </div>
+                <div class="control-group">
+                    <label>Release <span id="toneRelVal" class="status-line" style="float:right">500ms</span></label>
+                    <input type="range" id="toneRelease" min="50" max="2000" value="500">
+                </div>
+                <div class="control-group">
+                    <label>Detune <span id="toneDetVal" class="status-line" style="float:right">4c</span></label>
+                    <input type="range" id="toneDetune" min="0" max="50" value="4">
+                </div>
+                <div class="control-group">
+                    <label>Reverb <span id="toneRevVal" class="status-line" style="float:right">22%</span></label>
+                    <input type="range" id="toneReverb" min="0" max="100" value="22">
+                </div>
+                <div class="control-group">
+                    <label>Drive <span id="toneDrvVal" class="status-line" style="float:right">0%</span></label>
+                    <input type="range" id="toneDrive" min="0" max="100" value="0">
+                </div>
+            </div>
+
             <!-- AI / SHADOW -->
             <div class="panel">
                 <div class="panel-title"><span class="glyph">⚡</span> The Shadow</div>
@@ -711,6 +749,20 @@
         const masterGain = audioContext.createGain();
         masterGain.gain.value = 0.4;
 
+        // --- tone-shaping state (read by triggerVoice, knobs, scenes, AI) ---
+        const tone = {
+            cutoff: 100,      // 0-100 pct -> 200..20000 Hz
+            resonance: 0,     // 0-100 pct -> Q 0.5..20
+            envDepth: 50,     // 0-100 filter envelope sweep
+            attack: 12,       // ms
+            release: 500,     // ms
+            detune: 4,        // cents for unison spread
+            reverbMix: 22,    // 0-100
+            drive: 0,         // 0-100 waveshaper amount
+        };
+        function toneFreq() { return 200 * Math.pow(20000 / 200, tone.cutoff / 100); }
+        function toneQ()    { return 0.5 + (tone.resonance / 100) * 19.5; }
+
         const compressor = audioContext.createDynamicsCompressor();
         compressor.threshold.value = -18;
         compressor.knee.value = 6;
@@ -718,24 +770,71 @@
         compressor.attack.value = 0.005;
         compressor.release.value = 0.15;
 
+        // Soft-clip waveshaper (tanh curve -- warms signal, kills digital edge)
+        const waveshaper = audioContext.createWaveShaper();
+        const dryGain = audioContext.createGain();
+        dryGain.gain.value = 1;
+        const wetGain = audioContext.createGain();
+        wetGain.gain.value = 0;
+        function updateDriveCurve() {
+            const amt = 1 + tone.drive * 0.5;
+            const n = 8192, curve = new Float32Array(n);
+            for (let i = 0; i < n; i++) {
+                const x = (i / (n - 1)) * 2 - 1;
+                curve[i] = Math.tanh(x * amt);
+            }
+            waveshaper.curve = curve;
+            const w = tone.drive / 100;
+            dryGain.gain.setTargetAtTime(1 - w, audioContext.currentTime, 0.02);
+            wetGain.gain.setTargetAtTime(w * 0.7, audioContext.currentTime, 0.02);
+        }
+        updateDriveCurve();
+
+        // Reverb: shaped IR with early reflections + frequency-darkened tail
         const convolver = audioContext.createConvolver();
         const reverbGain = audioContext.createGain();
         reverbGain.gain.value = 0.22;
-        (function() {
+        (function buildIR() {
             const sr = audioContext.sampleRate;
-            const len = Math.floor(sr * 1.8);
+            const len = Math.floor(sr * 2.4);
             const buf = audioContext.createBuffer(2, len, sr);
             for (let c = 0; c < 2; c++) {
                 const d = buf.getChannelData(c);
-                for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+                // Early reflections (discrete taps in first 60ms)
+                [0.012, 0.024, 0.031, 0.047, 0.058].forEach(function(t) {
+                    const idx = Math.floor(t * sr);
+                    if (idx < len) d[idx] += (0.4 + Math.random() * 0.3) * (c === 0 ? 1 : -1) * (Math.random() > 0.5 ? 1 : -1);
+                });
+                // Diffuse tail with progressive high-frequency rolloff
+                for (let i = 0; i < len; i++) {
+                    const pos = i / len;
+                    const env = Math.pow(1 - pos, 2.6);
+                    let noise = Math.random() * 2 - 1;
+                    if (i > sr * 0.1) {
+                        const k = Math.min(8, Math.floor(1 + pos * 12));
+                        let sum = noise;
+                        for (let j = 1; j <= k; j++) sum += (Math.random() * 2 - 1);
+                        noise = sum / (k + 1);
+                    }
+                    d[i] += noise * env;
+                }
             }
             convolver.buffer = buf;
         })();
-        masterGain.connect(compressor);
+
+        // Routing: dry + drive -> compressor -> out; reverb send in parallel
+        masterGain.connect(dryGain);
+        masterGain.connect(waveshaper);
+        waveshaper.connect(wetGain);
+        dryGain.connect(compressor);
+        wetGain.connect(compressor);
         masterGain.connect(convolver);
         convolver.connect(reverbGain);
         reverbGain.connect(compressor);
         compressor.connect(audioContext.destination);
+        function updateReverbMix() {
+            reverbGain.gain.setTargetAtTime(tone.reverbMix / 100, audioContext.currentTime, 0.02);
+        }
 
         // ===== ANALYSER FOR WAVEFORM VIZ =====
         const analyser = audioContext.createAnalyser();
@@ -867,6 +966,25 @@
                     playNote(note, 100);
                     recordNote(note, 100);
                     highlightPad(note);
+                });
+            });
+
+            // Tone-shaping slider wiring (scenes + AI also write these)
+            [
+                ['toneCutoff',    'cutoff',    'toneCutoffVal', '%'],
+                ['toneResonance', 'resonance', 'toneResVal',    '%'],
+                ['toneEnvDepth',  'envDepth',  'toneEnvVal',    '%'],
+                ['toneAttack',    'attack',    'toneAtkVal',    'ms'],
+                ['toneRelease',   'release',   'toneRelVal',    'ms'],
+                ['toneDetune',    'detune',    'toneDetVal',    'c'],
+                ['toneReverb',    'reverbMix', 'toneRevVal',    '%'],
+                ['toneDrive',     'drive',     'toneDrvVal',    '%'],
+            ].forEach(function(ts) {
+                document.getElementById(ts[0]).addEventListener('input', function(e) {
+                    tone[ts[1]] = parseFloat(e.target.value);
+                    document.getElementById(ts[2]).textContent = e.target.value + ts[3];
+                    if (ts[1] === 'drive') updateDriveCurve();
+                    if (ts[1] === 'reverbMix') updateReverbMix();
                 });
             });
 
@@ -1172,7 +1290,8 @@
             src.start(when); src.stop(when + dur + 0.05);
         }
 
-        // Pitched synth voice. Timbre depends on the active instrument map.
+        // Pitched synth voice with per-note filter envelope, richer timbres,
+        // controllable attack/release/detune/drive via the tone object.
         function triggerVoice(ctx, dest, note, velocity, when, instrument) {
             if (instrument === 'drums') {
                 triggerDrum(ctx, dest, note, Math.max(1, Math.min(127, velocity)) / 127, when);
@@ -1180,55 +1299,74 @@
             }
             const v = Math.max(1, Math.min(127, velocity)) / 127;
             const freq = 440 * Math.pow(2, (note - 69) / 12);
-            const osc = ctx.createOscillator();
+            const atk = Math.max(0.003, tone.attack / 1000);
+            const rel = Math.max(0.05, tone.release / 1000);
+            const dur = atk + rel;
+            let peak = 0.3 * v;
+            let type = 'sine';
+            if (instrument === 'piano')     { type = 'triangle'; peak = 0.24 * v; }
+            else if (instrument === 'synth') { type = 'sawtooth'; peak = 0.18 * v; }
+
+            // Per-voice filter with envelope (biggest quality win)
+            const baseCut = toneFreq();
+            const envMult = 1 + (tone.envDepth / 100) * 4 * v;
+            const flt = ctx.createBiquadFilter();
+            flt.type = 'lowpass';
+            flt.Q.value = toneQ();
+            flt.frequency.setValueAtTime(Math.min(20000, baseCut * envMult), when);
+            flt.frequency.exponentialRampToValueAtTime(Math.max(20, baseCut), when + atk + rel * 0.4);
+
             const gain = ctx.createGain();
-            let type = 'sine', dur = 0.5, peak = 0.3 * v;
-            if (instrument === 'piano') { type = 'triangle'; dur = 0.6; peak = 0.28 * v; }
-            else if (instrument === 'synth') { type = 'sawtooth'; dur = 0.45; peak = 0.20 * v; }
+            gain.gain.setValueAtTime(0.0001, when);
+            gain.gain.exponentialRampToValueAtTime(Math.max(0.001, peak), when + atk);
+            gain.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+
+            const osc = ctx.createOscillator();
             osc.type = type;
             osc.frequency.setValueAtTime(freq, when);
-            let node = osc;
-            if (instrument === 'synth') {
-                const lp = ctx.createBiquadFilter();
-                lp.type = 'lowpass';
-                lp.frequency.setValueAtTime(Math.min(9000, freq * 6), when);
-                lp.Q.value = 6;
-                osc.connect(lp);
-                node = lp;
-                // Detuned second oscillator for width (+4 cents)
-                const osc2 = ctx.createOscillator();
-                const lp2 = ctx.createBiquadFilter();
-                osc2.type = 'sawtooth';
-                osc2.frequency.setValueAtTime(freq * Math.pow(2, 4 / 1200), when);
-                lp2.type = 'lowpass';
-                lp2.frequency.setValueAtTime(Math.min(9000, freq * 6), when);
-                lp2.Q.value = 6;
-                osc2.connect(lp2);
-                lp2.connect(gain);
-                osc2.start(when);
-                osc2.stop(when + dur + 0.05);
-            }
-            if (instrument === 'piano') {
-                // Octave partial for body
-                const osc2 = ctx.createOscillator();
-                const g2 = ctx.createGain();
-                osc2.type = 'sine';
-                osc2.frequency.setValueAtTime(freq * 2, when);
-                g2.gain.setValueAtTime(0.0001, when);
-                g2.gain.exponentialRampToValueAtTime(Math.max(0.001, peak * 0.28), when + 0.010);
-                g2.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.65);
-                osc2.connect(g2);
-                g2.connect(dest);
-                osc2.start(when);
-                osc2.stop(when + dur + 0.05);
-            }
-            gain.gain.setValueAtTime(0.0001, when);
-            gain.gain.exponentialRampToValueAtTime(Math.max(0.001, peak), when + 0.012);
-            gain.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-            node.connect(gain);
+            osc.connect(flt);
+            flt.connect(gain);
             gain.connect(dest);
             osc.start(when);
             osc.stop(when + dur + 0.05);
+
+            // Detuned unison (spread from tone.detune)
+            if (tone.detune > 0) {
+                const osc2 = ctx.createOscillator();
+                osc2.type = type;
+                osc2.frequency.setValueAtTime(freq * Math.pow(2, tone.detune / 1200), when);
+                const g2 = ctx.createGain();
+                g2.gain.setValueAtTime(0.0001, when);
+                g2.gain.exponentialRampToValueAtTime(Math.max(0.001, peak * 0.55), when + atk);
+                g2.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+                osc2.connect(flt);
+                osc2.start(when);
+                osc2.stop(when + dur + 0.05);
+            }
+
+            // Synth: steeper filter envelope, more resonance
+            if (instrument === 'synth') {
+                flt.Q.value = Math.max(toneQ(), 4);
+                flt.frequency.setValueAtTime(Math.min(18000, baseCut * envMult * 1.5), when);
+                flt.frequency.exponentialRampToValueAtTime(Math.max(20, baseCut * 0.5), when + atk + rel * 0.6);
+            }
+
+            // Piano: 4-partial additive (fundamental + 2nd + 3rd + 5th harmonics)
+            if (instrument === 'piano') {
+                [[2, 0.28, 0.65], [3, 0.12, 0.4], [5, 0.06, 0.25]].forEach(function(p) {
+                    const po = ctx.createOscillator();
+                    const pg = ctx.createGain();
+                    po.type = 'sine';
+                    po.frequency.setValueAtTime(freq * p[0], when);
+                    pg.gain.setValueAtTime(0.0001, when);
+                    pg.gain.exponentialRampToValueAtTime(Math.max(0.001, peak * p[1]), when + atk * 0.8);
+                    pg.gain.exponentialRampToValueAtTime(0.0001, when + dur * p[2]);
+                    po.connect(pg);
+                    pg.connect(flt);
+                    po.start(when);
+                    po.stop(when + dur + 0.05);
+                });
+            }
         }
 
         // Public realtime trigger used by pads, MIDI input, and one-shot previews.
@@ -1456,10 +1594,14 @@
         // Euclidean density/length) collapse into a single gesture; the
         // complexity lives here instead of in the user's head.
         const SCENES = [
-            { key: 'deepvoid', label: 'DEEP VOID', instrument: 'hirajoshi', tempo: 72,  density: 3, length: 16, division: 8 },
-            { key: 'pulse',    label: 'PULSE',     instrument: 'synth',     tempo: 124, density: 9, length: 16, division: 16 },
-            { key: 'ritual',   label: 'RITUAL',    instrument: 'drums',     tempo: 96,  density: 5, length: 8,  division: 8 },
-            { key: 'glass',    label: 'GLASS',     instrument: 'just',      tempo: 84,  density: 4, length: 12, division: 8 }
+            { key: 'deepvoid', label: 'DEEP VOID', instrument: 'hirajoshi', tempo: 72,  density: 3, length: 16, division: 8,
+              tone: { cutoff: 45, resonance: 30, envDepth: 70, attack: 80, release: 1400, detune: 12, reverbMix: 55, drive: 0 } },
+            { key: 'pulse',    label: 'PULSE',     instrument: 'synth',     tempo: 124, density: 9, length: 16, division: 16,
+              tone: { cutoff: 70, resonance: 50, envDepth: 80, attack: 5,  release: 200,  detune: 8,  reverbMix: 15, drive: 25 } },
+            { key: 'ritual',   label: 'RITUAL',    instrument: 'drums',     tempo: 96,  density: 5, length: 8,  division: 8,
+              tone: { cutoff: 100, resonance: 0, envDepth: 30, attack: 12, release: 400,  detune: 4,  reverbMix: 35, drive: 10 } },
+            { key: 'glass',    label: 'GLASS',     instrument: 'just',      tempo: 84,  density: 4, length: 12, division: 8,
+              tone: { cutoff: 85, resonance: 15, envDepth: 60, attack: 40, release: 1000, detune: 20, reverbMix: 60, drive: 0 } }
         ];
 
         function applyScene(key) {
@@ -1475,6 +1617,28 @@
             document.getElementById('euclideanDensity').value = sc.density;
             document.getElementById('euclideanLength').value = sc.length;
             renderEuclidean();
+            // Apply tone-shaping params from the scene
+            if (sc.tone) {
+                [
+                    ['toneCutoff',    'cutoff',    'toneCutoffVal', '%'],
+                    ['toneResonance', 'resonance', 'toneResVal',    '%'],
+                    ['toneEnvDepth',  'envDepth',  'toneEnvVal',    '%'],
+                    ['toneAttack',    'attack',    'toneAtkVal',    'ms'],
+                    ['toneRelease',   'release',   'toneRelVal',    'ms'],
+                    ['toneDetune',    'detune',    'toneDetVal',    'c'],
+                    ['toneReverb',    'reverbMix', 'toneRevVal',    '%'],
+                    ['toneDrive',     'drive',     'toneDrvVal',    '%'],
+                ].forEach(function(m) {
+                    const val = sc.tone[m[1]];
+                    if (val != null) {
+                        tone[m[1]] = val;
+                        document.getElementById(m[0]).value = val;
+                        document.getElementById(m[2]).textContent = val + m[3];
+                    }
+                });
+                updateDriveCurve();
+                updateReverbMix();
+            }
             document.querySelectorAll('#sceneRow .scene-chip').forEach((b) => {
                 b.classList.toggle('active', b.dataset.scene === key);
             });

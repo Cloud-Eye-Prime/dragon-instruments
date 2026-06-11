@@ -205,19 +205,21 @@ function generatePerformance(bars, styleArr, density, mel, rhythmOn) {
 
 // --- synth builders (used live AND offline) ---
 function makeKit(dest) {
+  const panTo = (p) => new Tone.Panner(p).connect(dest);
   return {
-    kick: new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 6, envelope: { attack: 0.001, decay: 0.32, sustain: 0, release: 0.1 } }).connect(dest),
-    frame: new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4, envelope: { attack: 0.002, decay: 0.34, sustain: 0, release: 0.1 } }).connect(dest),
-    conga: new Tone.MembraneSynth({ pitchDecay: 0.018, octaves: 3, envelope: { attack: 0.001, decay: 0.22, sustain: 0, release: 0.05 } }).connect(dest),
-    snare: new Tone.NoiseSynth({ noise: { type: "white" }, envelope: { attack: 0.001, decay: 0.13, sustain: 0 } }).connect(dest),
-    clap: new Tone.NoiseSynth({ noise: { type: "pink" }, envelope: { attack: 0.002, decay: 0.16, sustain: 0 } }).connect((() => { const f = new Tone.Filter(1500, "bandpass"); f.connect(dest); return f; })()),
-    shaker: new Tone.NoiseSynth({ noise: { type: "white" }, envelope: { attack: 0.001, decay: 0.05, sustain: 0 } }).connect((() => { const f = new Tone.Filter(6500, "highpass"); f.connect(dest); return f; })()),
-    tek: new Tone.MembraneSynth({ pitchDecay: 0.008, octaves: 2, envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.02 } }).connect(dest),
+    kick: new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 6, envelope: { attack: 0.001, decay: 0.32, sustain: 0, release: 0.1 } }).connect(panTo(0)),
+    _kickClick: new Tone.NoiseSynth({ noise: { type: "white" }, envelope: { attack: 0.001, decay: 0.015, sustain: 0 } }).connect((() => { const f = new Tone.Filter(4000, "bandpass"); f.connect(panTo(0)); return f; })()),
+    frame: new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4, envelope: { attack: 0.002, decay: 0.34, sustain: 0, release: 0.1 } }).connect(panTo(-0.3)),
+    conga: new Tone.MembraneSynth({ pitchDecay: 0.018, octaves: 3, envelope: { attack: 0.001, decay: 0.22, sustain: 0, release: 0.05 } }).connect(panTo(0.35)),
+    snare: new Tone.NoiseSynth({ noise: { type: "white" }, envelope: { attack: 0.001, decay: 0.13, sustain: 0 } }).connect(panTo(0.1)),
+    clap: new Tone.NoiseSynth({ noise: { type: "pink" }, envelope: { attack: 0.002, decay: 0.16, sustain: 0 } }).connect((() => { const f = new Tone.Filter(1500, "bandpass"); f.connect(panTo(-0.15)); return f; })()),
+    shaker: new Tone.NoiseSynth({ noise: { type: "white" }, envelope: { attack: 0.001, decay: 0.05, sustain: 0 } }).connect((() => { const f = new Tone.Filter(6500, "highpass"); f.connect(panTo(-0.4)); return f; })()),
+    tek: new Tone.MembraneSynth({ pitchDecay: 0.008, octaves: 2, envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.02 } }).connect(panTo(0.25)),
   };
 }
 function triggerDrum(k, v, vel, time) {
   try {
-    if (v === "kick") k.kick.triggerAttackRelease("C1", "8n", time, vel);
+    if (v === "kick") { k.kick.triggerAttackRelease("C1", "8n", time, vel); if (k._kickClick) k._kickClick.triggerAttackRelease("32n", time, vel * 0.5); }
     else if (v === "frame") k.frame.triggerAttackRelease("G1", "8n", time, vel);
     else if (v === "conga") k.conga.triggerAttackRelease("A2", "16n", time, vel);
     else if (v === "snare") k.snare.triggerAttackRelease("16n", time, vel);
@@ -347,15 +349,15 @@ async function aiDirect(ctx) {
 // table instead of on the user's screen; applying one also starts playback.
 const PRESETS = [
   { key: "stillness", name: "stillness",
-    set: { mode: "binaural", navMode: "journey", minutes: 12, bpm: 72, noiseOn: true, rhythmOn: false, styles: [], density: 0.4, melOn: false, fxFilter: 0, fxDrive: 0, fxDelay: 0, fxReverb: 0.3 } },
+    set: { mode: "binaural", navMode: "journey", minutes: 12, bpm: 72, noiseOn: true, rhythmOn: false, styles: [], density: 0.4, melOn: false, fxFilter: 0, fxDrive: 0, fxDelay: 0, fxReverb: 0.3, reverbDecay: 6 } },
   { key: "deeprest", name: "deep rest",
-    set: { mode: "binaural", navMode: "manual", manualBand: "delta", bpm: 60, noiseOn: true, rhythmOn: true, styles: ["icaro"], density: 0.3, melOn: false, fxFilter: 0.35, fxDrive: 0, fxDelay: 0.1, fxReverb: 0.45 } },
+    set: { mode: "binaural", navMode: "manual", manualBand: "delta", bpm: 60, noiseOn: true, rhythmOn: true, styles: ["icaro"], density: 0.3, melOn: false, fxFilter: 0.35, fxDrive: 0, fxDelay: 0.1, fxReverb: 0.45, reverbDecay: 5 } },
   { key: "focus", name: "focus",
-    set: { mode: "isochronic", navMode: "manual", manualBand: "alpha", bpm: 84, noiseOn: false, rhythmOn: true, styles: ["mbuti"], density: 0.45, melOn: false, fxFilter: 0.15, fxDrive: 0, fxDelay: 0.08, fxReverb: 0.2 } },
+    set: { mode: "isochronic", navMode: "manual", manualBand: "alpha", bpm: 84, noiseOn: false, rhythmOn: true, styles: ["mbuti"], density: 0.45, melOn: false, fxFilter: 0.15, fxDrive: 0, fxDelay: 0.08, fxReverb: 0.2, reverbDecay: 2.5 } },
   { key: "flow", name: "flow",
-    set: { mode: "binaural", navMode: "manual", manualBand: "theta", bpm: 100, noiseOn: false, rhythmOn: true, styles: ["trance"], density: 0.6, melOn: true, melScale: "pentMinor", melRoot: "A", melPattern: "melody", melRate: 2, melOct: 3, instrument: "pluck", fxFilter: 0.1, fxDrive: 0, fxDelay: 0.25, fxReverb: 0.35 } },
+    set: { mode: "binaural", navMode: "manual", manualBand: "theta", bpm: 100, noiseOn: false, rhythmOn: true, styles: ["trance"], density: 0.6, melOn: true, melScale: "pentMinor", melRoot: "A", melPattern: "melody", melRate: 2, melOct: 3, instrument: "pluck", fxFilter: 0.1, fxDrive: 0, fxDelay: 0.25, fxReverb: 0.35, reverbDecay: 3.5 } },
   { key: "groove", name: "groove",
-    set: { mode: "isochronic", navMode: "manual", manualBand: "beta", bpm: 92, noiseOn: false, rhythmOn: true, styles: ["hiphop"], density: 0.7, melOn: true, melScale: "blues", melRoot: "G", melPattern: "melody", melRate: 2, melOct: 4, instrument: "saw", fxFilter: 0.05, fxDrive: 0.25, fxDelay: 0.15, fxReverb: 0.2 } },
+    set: { mode: "isochronic", navMode: "manual", manualBand: "beta", bpm: 92, noiseOn: false, rhythmOn: true, styles: ["hiphop"], density: 0.7, melOn: true, melScale: "blues", melRoot: "G", melPattern: "melody", melRate: 2, melOct: 4, instrument: "saw", fxFilter: 0.05, fxDrive: 0.25, fxDelay: 0.15, fxReverb: 0.2, reverbDecay: 2 } },
 ];
 
 // Collapsible panel with a live one-line summary while closed. Top-level
@@ -402,6 +404,7 @@ function GhatikaV6() {
   const [fxDrive, setFxDrive] = useState(0);
   const [fxDelay, setFxDelay] = useState(0);
   const [fxReverb, setFxReverb] = useState(0.25);
+  const [reverbDecay, setReverbDecay] = useState(4); // seconds
   // AI compose
   const [mood, setMood] = useState("meditative, breathing, unhurried");
   const [composing, setComposing] = useState(false);
@@ -457,7 +460,7 @@ function GhatikaV6() {
   const measureRef = useRef(0);
   const djApplyRef = useRef(null);
   const requestAheadRef = useRef(null);
-  const fxFilterRef = useRef(fxFilter), fxDelayRef = useRef(fxDelay), fxReverbRef = useRef(fxReverb), fxDriveRef = useRef(fxDrive);
+  const fxFilterRef = useRef(fxFilter), fxDelayRef = useRef(fxDelay), fxReverbRef = useRef(fxReverb), fxDriveRef = useRef(fxDrive), reverbDecayRef = useRef(reverbDecay);
   const lastSegLabelRef = useRef("Arrive"), lastBeatRef = useRef(10);
   const drumGainsRef = useRef(Object.fromEntries(VOICES.map(v => [v, 1.0])));
   const manualPatRef = useRef(Object.fromEntries(VOICES.map(v => Array(32).fill(false))));
@@ -484,7 +487,7 @@ function GhatikaV6() {
   useEffect(() => { const p = midiOuts.find((o) => o.id === midiSel); midiRef.current.port = p || null; }, [midiSel, midiOuts]);
   useEffect(() => { if (drumBusRef.current) drumBusRef.current.gain.rampTo(drumVol, 0.2); }, [drumVol]);
   useEffect(() => { if (melBusRef.current) melBusRef.current.gain.rampTo(melVol, 0.2); }, [melVol]);
-  useEffect(() => { applyFx(); fxFilterRef.current = fxFilter; fxDelayRef.current = fxDelay; fxReverbRef.current = fxReverb; fxDriveRef.current = fxDrive; /* eslint-disable-next-line */ }, [fxFilter, fxDrive, fxDelay, fxReverb]);
+  useEffect(() => { applyFx(); fxFilterRef.current = fxFilter; fxDelayRef.current = fxDelay; fxReverbRef.current = fxReverb; fxDriveRef.current = fxDrive; reverbDecayRef.current = reverbDecay; /* eslint-disable-next-line */ }, [fxFilter, fxDrive, fxDelay, fxReverb, reverbDecay]);
   useEffect(() => { bpmRef.current = bpm; if (transportRef.current) transportRef.current.bpm.rampTo(bpm, 0.3); }, [bpm]);
   useEffect(() => {
     const cfg = { scale: melScale, pattern: melPattern, root: melRoot, oct: melOct, rate: melRate, on: melOn };
@@ -533,7 +536,8 @@ function GhatikaV6() {
     try { fx.driveMix.fade.rampTo(fxDrive, 0.15); } catch (e) {}
     try { fx.delaySend.gain.rampTo(fxDelay, 0.15); } catch (e) {}
     try { fx.reverbSend.gain.rampTo(fxReverb, 0.15); } catch (e) {}
-  }, [fxFilter, fxDrive, fxDelay, fxReverb]);
+    try { if (fx.reverb && Math.abs(fx.reverb.decay - reverbDecay) > 0.1) fx.reverb.decay = reverbDecay; } catch (e) {}
+  }, [fxFilter, fxDrive, fxDelay, fxReverb, reverbDecay]);
 
   const rebuildMelodyVoice = useCallback(() => {
     if (!melBusRef.current) return;
@@ -544,7 +548,8 @@ function GhatikaV6() {
 
   const ensureGraph = useCallback(async () => {
     if (masterRef.current) return; await Tone.start();
-    const master = new Tone.Gain(vol).toDestination(); const breathGain = new Tone.Gain(0.7).connect(master);
+    const limiter = new Tone.Limiter(-3).toDestination();
+    const master = new Tone.Gain(vol).connect(limiter); const breathGain = new Tone.Gain(0.7).connect(master);
     masterRef.current = master; breathGainRef.current = breathGain;
     // Effects on the MUSIC bus (drums + melody). Drone/wave bypass FX.
     // CRITICAL: delay & reverb are PARALLEL SENDS, not inline. Tone.Reverb
@@ -557,7 +562,7 @@ function GhatikaV6() {
     const delaySend = new Tone.Gain(fxDelay);
     const reverbSend = new Tone.Gain(fxReverb);
     const delay = new Tone.PingPongDelay({ delayTime: "8n", feedback: 0.32, wet: 1 });
-    const reverb = new Tone.Reverb({ decay: 4, preDelay: 0.02, wet: 1 });
+    const reverb = new Tone.Reverb({ decay: reverbDecayRef.current, preDelay: 0.02, wet: 1 });
     const musicBus = new Tone.Gain(1);
     musicBus.connect(filter);
     filter.connect(driveMix.a);
@@ -669,6 +674,7 @@ function GhatikaV6() {
     setFxDrive(s.fxDrive); fxDriveRef.current = s.fxDrive;
     setFxDelay(s.fxDelay); fxDelayRef.current = s.fxDelay;
     setFxReverb(s.fxReverb); fxReverbRef.current = s.fxReverb;
+    if (s.reverbDecay != null) { setReverbDecay(s.reverbDecay); reverbDecayRef.current = s.reverbDecay; }
     if (!playingRef.current) start();
   }, [start]);
 
@@ -1111,7 +1117,7 @@ function GhatikaV6() {
 
         {/* effects rack */}
         <Section id="fx" title="effects" open={openSecs.has("fx")} onToggle={toggleSec}
-          summary={[["filter", fxFilter], ["drive", fxDrive], ["delay", fxDelay], ["reverb", fxReverb]].filter(([, v]) => v > 0.01).map(([n, v]) => n + " " + Math.round(v * 100)).join(" \u00b7 ") || "dry"}>
+          summary={[["filter", fxFilter], ["drive", fxDrive], ["delay", fxDelay], ["reverb", fxReverb], ["decay", (reverbDecay - 2) / 6]].filter(([, v]) => v > 0.01).map(([n, v]) => n + " " + Math.round(v * 100)).join(" \u00b7 ") || "dry"}>
           <div className="g-row"><span className="g-label">{"filter \u2192 drive \u2192 delay \u2192 reverb (on drums + melody)"}</span></div>
           <div className="g-row" style={{ gap: 14 }}>
             <span className="g-label">filter</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="1" step="0.01" value={fxFilter} onChange={(e) => setFxFilter(parseFloat(e.target.value))} />
@@ -1120,6 +1126,10 @@ function GhatikaV6() {
           <div className="g-row" style={{ gap: 14 }}>
             <span className="g-label">delay</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="0.8" step="0.01" value={fxDelay} onChange={(e) => setFxDelay(parseFloat(e.target.value))} />
             <span className="g-label">reverb</span><input className="g-slider" style={{ width: 96 }} type="range" min="0" max="0.9" step="0.01" value={fxReverb} onChange={(e) => setFxReverb(parseFloat(e.target.value))} />
+          </div>
+          <div className="g-row" style={{ gap: 14 }}>
+            <span className="g-label">decay</span><input className="g-slider" style={{ width: 96 }} type="range" min="1" max="8" step="0.5" value={reverbDecay} onChange={(e) => setReverbDecay(parseFloat(e.target.value))} />
+            <span className="g-label" style={{ opacity: 0.5 }}>{reverbDecay + "s"}</span>
           </div>
         </Section>
 
