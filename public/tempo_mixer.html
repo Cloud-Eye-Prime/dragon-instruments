@@ -12,12 +12,21 @@
 .tbtn{font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid var(--bd2);background:#121a25;color:#9fb3c8;cursor:pointer;font-family:inherit}
 .tbtn:hover{border-color:#3a4a5e}
 .tbtn.on{background:#13283a;color:var(--cyan);border-color:#2f5a72}
-.tbtn.rec.on{background:#3a1620;color:#ff5d7a;border-color:#6e2333}
+.tbtn.rec.on{background:#3a1620;color:#ff5d7a;border-color:#6e2333;font-weight:700;animation:recpulse 1.1s ease-in-out infinite}
+@keyframes recpulse{0%,100%{box-shadow:0 0 0 0 rgba(255,93,122,.55)}50%{box-shadow:0 0 0 6px rgba(255,93,122,0)}}
+#recBadge{display:none;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#ff5d7a;letter-spacing:1.5px}
+#recBadge::before{content:'';width:9px;height:9px;border-radius:50%;background:#ff5d6c;animation:recpulse 1.1s ease-in-out infinite}
+body.recording #recBadge{display:inline-flex}
+body.recording .console{border-color:#6e2333}
 .clock{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#0d1622;border:1px solid #1f2c3c;border-radius:8px}
 .bpm{font-size:18px;font-weight:600;color:#e7ecf2;min-width:38px;text-align:center}
 input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);border-radius:6px;padding:4px 6px;font-size:11px;font-family:inherit}
 .rack{display:flex;gap:8px;overflow-x:auto;padding:10px 2px;align-items:stretch;min-height:160px}
-.empty{color:var(--dim);padding:20px;font-style:italic;max-width:560px}
+.empty{color:var(--dim);padding:20px;max-width:620px}
+.ctarow{display:flex;gap:10px;flex-wrap:wrap}
+.cta{font-size:14px;padding:14px 18px;border-radius:10px;border:1px solid #2f5a72;background:#13283a;color:var(--cyan);cursor:pointer;font-family:inherit}
+.cta:hover{border-color:#3f7a9a;background:#16314a}
+.ctahint{margin-top:10px;font-size:11px;color:var(--dim);line-height:1.5}
 .strip{flex:0 0 124px;background:var(--pan);border:1px solid var(--bd);border-radius:10px;padding:9px 8px;display:flex;flex-direction:column;gap:7px}
 .strip.master{flex-basis:122px;background:var(--pan2);border-color:#274055}
 .chead{display:flex;align-items:center;gap:6px}
@@ -25,6 +34,7 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
 .cname{font-size:12px;font-weight:600;color:#dbe6f2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip{font-size:10px;padding:1px 5px;border-radius:4px;letter-spacing:.3px}
 .sub{min-height:22px;display:flex;gap:5px;align-items:center;font-size:10px;color:var(--dim);flex-wrap:wrap}
+.ssum{font-size:9px;color:var(--mut);line-height:1.3;min-height:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mini{font-size:10px;padding:3px 6px;border-radius:5px;border:1px solid var(--bd2);background:#121a25;color:var(--dim);cursor:pointer;font-family:inherit}
 .mini.on{background:#2e2410;color:#ffc46b;border-color:#5e4a1f}
 .kgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 4px;justify-items:center}
@@ -58,7 +68,17 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
 .scopewrap .lbl{font-size:10px;color:var(--mut);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
 #scope{width:100%;height:60px;display:block;background:#070b11;border:1px solid var(--bd);border-radius:6px}
 .statusbar{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:11px;color:var(--dim)}
-.gurl{flex:1;min-width:90px}
+@media (max-width:480px),(pointer:coarse){
+ .knob{width:46px;height:46px}
+ .ptr{height:19px}
+ .strip{flex:0 0 152px}
+ .strip.master{flex-basis:152px}
+ .kgrid{gap:10px 6px}
+ .tog,.mini{padding:8px 0;font-size:11px}
+ .grp{flex-basis:34px;padding:8px 0;font-size:11px}
+ .fader{width:40px}
+ .fcap{width:36px;height:18px}
+}
 </style></head>
 <body>
 <div class="console">
@@ -82,13 +102,44 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
     <button class="tbtn" id="capBtn">+ capture</button>
     <button class="tbtn" id="fileBtn">+ file</button>
     <input class="x" id="urlIn" placeholder="media url" style="width:140px"><button class="tbtn" id="urlBtn">load url</button>
+    <button class="tbtn" id="ytBtn">add from YouTube...</button>
+    <span id="ytRow" style="display:none;align-items:center;gap:6px;flex-wrap:wrap">
+      <input class="x" id="grabUrl" placeholder="youtube url" style="width:150px">
+      <input class="x" id="grabStart" placeholder="start (opt)" style="width:66px">
+      <input class="x" id="grabEnd" placeholder="end (opt)" style="width:66px">
+      <button class="tbtn" id="grabBtn" title="blank start/end pulls the first 90s; enter start/end like 0:42 / 1:12 for an exact window, max 30 min. Never downloads the whole file.">grab section</button>
+      <input class="x" id="grabBase" value="https://dragon-grabber-production.up.railway.app" style="width:210px" title="grabber service base url">
+    </span>
     <span style="flex:1"></span>
-    <input class="x" id="grabUrl" placeholder="youtube url" style="width:150px">
-    <input class="x" id="grabStart" placeholder="start (opt)" style="width:66px">
-    <input class="x" id="grabEnd" placeholder="end (opt)" style="width:66px">
-    <button class="tbtn" id="grabBtn">grab section</button>
   </div>
-  <div class="rack" id="rack"><div class="empty" id="emptyMsg">Start Audio, then route sources. For YouTube use Grab -- blank pulls the first 90s; enter start/end (like 0:42 / 1:12) for an exact window, max 30 min. It never downloads the whole file. + Capture taps a live tab (muted locally). + File loads a local track. Composers on the dragon-bus appear automatically. Each strip: 3-band EQ, filter sweep, reverb/delay sends, pan, fader. Route strips L or R, then blend with the crossfader below.</div></div>
+  <div class="rack" id="rack"><div class="empty" id="emptyMsg">
+    <div class="ctarow">
+      <button class="cta" data-cta="cap">+ Capture a tab</button>
+      <button class="cta" data-cta="file">+ Load a file</button>
+      <button class="cta" data-cta="start">Start Audio</button>
+    </div>
+    <div class="ctahint">Pick a source -- audio starts itself. Capture taps a live tab (muted locally); file loads a local track. Then hit <b>auto-mix</b> in the AI bar and let it balance the console. V0ID_SCALE / Ghatika playing in another tab join here on their own. Each strip: 3-band EQ, filter sweep, reverb/delay sends, pan, fader; route strips L or R and blend with the crossfader below.</div>
+  </div></div>
+  <div class="tbar" id="aibar">
+    <span class="title" style="font-size:11px">AI</span>
+    <button class="tbtn" id="aiKeyBtn">add key</button>
+    <span id="aiKeyRow" style="display:none;align-items:center;gap:6px">
+      <input class="x" id="aiKey" type="password" placeholder="sk-ant-... (stays in this browser)" style="width:190px">
+      <a href="#" id="aiForget" style="color:var(--mut);font-size:11px">forget</a>
+      <input class="x" id="aiModel" value="claude-sonnet-4-6" style="width:140px" title="Anthropic model id">
+    </span>
+    <button class="tbtn" id="autoMixBtn" title="AI listens to every strip (level + band energy) and balances the console. Costs one call on your key. Undo reverts exactly.">auto-mix</button>
+    <button class="tbtn" id="undoBtn" title="restore the console to before the last AI/scene change">undo</button>
+    <input class="x" id="aiCmd" placeholder="tell the mix: duck the pad under the lead" style="width:230px" title="natural-language mix command; only what you name moves. Costs one call on your key.">
+    <button class="tbtn" id="aiCmdBtn">do it</button>
+    <input class="x" id="sceneName" placeholder="vibe / scene name" style="width:110px">
+    <button class="tbtn" id="sceneSaveBtn" title="snapshot the whole console under this name -- free, no AI">save scene</button>
+    <button class="tbtn" id="vibeBtn" title="ask the AI for a full console scene matching this vibe name. Costs one call on your key.">vibe</button>
+    <button class="tbtn" id="djBtn" title="a live director: writes bounded mix moves bars ahead on the clock, one request at a time, on your key. Touching the console hands control back; panic stops it dead.">AI DJ</button>
+    <select class="x" id="sceneSel" style="display:none"></select>
+    <button class="tbtn" id="sceneRecallBtn" style="display:none" title="apply the selected scene (undo reverts). Scenes live for this session -- strips exist only while their sources do.">recall</button>
+    <span class="tdim">browser-to-Anthropic direct; nothing fires without a click</span>
+  </div>
   <div class="xfader">
     <span class="xlab l">L group</span>
     <div class="xtrack" id="xtrack" tabindex="0"><div class="xcenter"></div><div class="xhandle" id="xhandle"></div></div>
@@ -97,8 +148,8 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
   </div>
   <div class="scopewrap"><div class="lbl">master output</div><canvas id="scope"></canvas></div>
   <div class="statusbar">
+    <span id="recBadge">RECORDING</span>
     <span id="status">ready</span>
-    <input class="x gurl" id="grabBase" value="https://dragon-grabber-production.up.railway.app">
   </div>
 </div>
 <input type="file" id="fileInput" accept="audio/*" style="display:none">
@@ -108,13 +159,20 @@ var ctx=null,master=null,masterAn=null,streamDest=null,proc=null,zeroSink=null,s
 var loopGain=null,loopSrc=null,loopBuffer=null;
 var channels=new Map(),order=[],cache={},xf=0.5;
 var recorder=null,recChunks=[],capWav=false,capLoop=false,loopTarget=0,wavL=[],wavR=[],loopL=[],loopR=[];
-var bc=null,clockOn=false,clockTimer=null,beatCount=0,pendingResync=false;
+var bc=null,clockOn=false,clockTimer=null,beatCount=0,pendingResync=false,masterData=null;
 var KDEF={high:0.5,mid:0.5,low:0.5,filt:0.5,rev:0,dly:0,pan:0.5};
 var KO=[['high','hi'],['mid','mid'],['low','lo'],['filt','flt'],['rev','rev'],['dly','dly']];
 var CHIP={composer:{bg:'#241a3a',fg:'#b794ff',t:'clock'},capture:{bg:'#0e2a36',fg:'#5fd9ff',t:'live'},file:{bg:'#2e2410',fg:'#ffc46b',t:'tempo'}};
 var COLS=['#39d6ff','#ffb347','#48e0a0','#ff6b9d','#9d6bff','#5fd9ff'];
 var $=function(id){return document.getElementById(id);};
+var emptyHTML=document.getElementById('emptyMsg').outerHTML;
 function setStatus(t){$('status').textContent=t;}
+function recUI(){document.body.classList.toggle('recording',capWav||capLoop||!!(recorder&&recorder.state==='recording'));}
+function stripSummary(c){var p=[];KO.forEach(function(kk){var key=kk[0],v=c.k[key];if(Math.abs(v-KDEF[key])>0.02)p.push(kk[1]+' '+knobReadout(key,v));});
+ if(Math.abs(c.k.pan-0.5)>0.03)p.push('pan '+knobReadout('pan',c.k.pan));
+ if(c.group)p.push('grp '+c.group);if(c.mute)p.push('MUTE');if(c.solo)p.push('SOLO');
+ return p.length?p.join(' / '):'flat';}
+function updateSummary(c){var el=c.els.strip&&c.els.strip.querySelector('[data-sum]');if(el)el.textContent=stripSummary(c);}
 function bpm(){return Math.max(40,Math.min(220,parseInt($('bpm').value)||100));}
 
 function startAudio(){if(started)return;ctx=new (window.AudioContext||window.webkitAudioContext)();master=ctx.createGain();master.gain.value=+$('masterVol').value/100;masterAn=ctx.createAnalyser();masterAn.fftSize=2048;master.connect(masterAn);masterAn.connect(ctx.destination);try{streamDest=ctx.createMediaStreamDestination();master.connect(streamDest);}catch(e){}
@@ -122,9 +180,25 @@ function startAudio(){if(started)return;ctx=new (window.AudioContext||window.web
  proc=ctx.createScriptProcessor(4096,2,2);zeroSink=ctx.createGain();zeroSink.gain.value=0;master.connect(proc);proc.connect(zeroSink);zeroSink.connect(ctx.destination);
  proc.onaudioprocess=function(e){if(!capWav&&!capLoop)return;var ib=e.inputBuffer,l=ib.getChannelData(0),r=ib.numberOfChannels>1?ib.getChannelData(1):l;if(capWav){wavL.push(new Float32Array(l));wavR.push(new Float32Array(r));}if(capLoop){loopL.push(new Float32Array(l));loopR.push(new Float32Array(r));var h=0;loopL.forEach(function(c){h+=c.length;});if(loopTarget&&h>=loopTarget)finishLoop();}};
  bc=new BroadcastChannel('dragon-bus');bc.onmessage=function(e){handleBus(e.data);};
- started=true;$('startBtn').classList.add('on');$('startBtn').textContent='Audio On';drawScope();setStatus('audio live');}
+ started=true;$('startBtn').classList.add('on');$('startBtn').textContent='Audio On';buildMasterStrip();drawScope();setStatus('audio live');}
 
-function startClock(){stopClock();var t=function(){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}};clockTimer=setInterval(t,60000/bpm());}
+// the master strip: a real strip on the rack's right edge -- master fader
+// (kept in sync with the toolbar slider) plus the master meter
+function buildMasterStrip(){if($('masterStrip'))return;
+ var s=document.createElement('div');s.className='strip master';s.id='masterStrip';
+ s.innerHTML='<div class="chead"><span class="cdot" style="background:#39d6ff"></span><span class="cname">MASTER</span></div>'+
+  '<div><span class="chip" style="background:#0e2a36;color:#5fd9ff">out</span></div>'+
+  '<div class="sub">everything leaves here</div>'+
+  '<div class="fz" style="margin-top:auto"><div class="fader" data-master="1" title="master output level -- drag up/down"><div class="ftrack"></div><div class="fcap"><div class="fline"></div></div></div><div class="meter">'+segCol('master-l')+segCol('master-r')+'</div></div>'+
+  '<div class="db" id="masterDb">'+dbStr(master.gain.value)+'</div>';
+ $('rack').appendChild(s);
+ var f=s.querySelector('.fader');f.querySelector('.fcap').style.top=capTop(f,master.gain.value)+'px';
+ cache['master-l']={segs:[].slice.call(s.querySelector('[data-mc="master-l"]').children),peak:0};
+ cache['master-r']={segs:[].slice.call(s.querySelector('[data-mc="master-r"]').children),peak:0};
+ masterData=new Uint8Array(masterAn.fftSize);}
+function syncMasterUI(v){var ms=$('masterStrip');if(ms){var f=ms.querySelector('.fader');f.querySelector('.fcap').style.top=capTop(f,v)+'px';$('masterDb').textContent=dbStr(v);}$('masterVol').value=Math.round(v*100);$('masterReadout').textContent=Math.round(v*100)+'%';}
+
+function startClock(){stopClock();var t=function(){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);};clockTimer=setInterval(t,60000/bpm());}
 function stopClock(){if(clockTimer)clearInterval(clockTimer);clockTimer=null;}
 function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio){try{ch.audio.currentTime=0;}catch(e){}}});if(loopBuffer)restartLoop();setStatus('re-synced');}
 
@@ -137,14 +211,15 @@ function deg(v){return -135+v*270;}
 function dbStr(v){if(v<=0.0015)return '-inf';var d=20*Math.log10(v);return (d>0?'+':'')+d.toFixed(1);}
 function capTop(f,v){var H=f.clientHeight||150,t=9,cap=14;return t+(1-v)*(H-2*t-cap);}
 function knobReadout(key,v){if(key==='high'||key==='mid'||key==='low'){var d=Math.round((v-0.5)*40);return (d>0?'+':'')+d;}if(key==='filt')return Math.abs(v-0.5)<0.04?'off':(v<0.5?'LP':'HP');if(key==='pan'){var p=v*2-1;return Math.abs(p)<0.06?'C':(p<0?'L'+Math.round(-p*50):'R'+Math.round(p*50));}return Math.round(v*100);}
-function applyKnob(ch,key,v){var n=ch.nodes,now=ctx.currentTime;
- if(key==='low')n.eqLow.gain.setTargetAtTime((v-0.5)*40,now,0.02);
- else if(key==='mid')n.eqMid.gain.setTargetAtTime((v-0.5)*40,now,0.02);
- else if(key==='high')n.eqHigh.gain.setTargetAtTime((v-0.5)*40,now,0.02);
- else if(key==='filt'){if(Math.abs(v-0.5)<0.04){n.filter.type='allpass';}else if(v<0.5){n.filter.type='lowpass';n.filter.frequency.setTargetAtTime(200*Math.pow(90,v/0.5),now,0.02);}else{n.filter.type='highpass';n.filter.frequency.setTargetAtTime(20*Math.pow(125,(v-0.5)/0.5),now,0.02);}}
- else if(key==='rev')n.revSend.gain.setTargetAtTime(v,now,0.02);
- else if(key==='dly')n.dlySend.gain.setTargetAtTime(v,now,0.02);
- else if(key==='pan')n.panner.pan.setTargetAtTime(v*2-1,now,0.02);}
+function applyKnob(ch,key,v,tc){var n=ch.nodes,now=ctx.currentTime,k=tc||0.02;
+ if(key==='low')n.eqLow.gain.setTargetAtTime((v-0.5)*40,now,k);
+ else if(key==='mid')n.eqMid.gain.setTargetAtTime((v-0.5)*40,now,k);
+ else if(key==='high')n.eqHigh.gain.setTargetAtTime((v-0.5)*40,now,k);
+ else if(key==='filt'){if(Math.abs(v-0.5)<0.04){n.filter.type='allpass';}else if(v<0.5){n.filter.type='lowpass';n.filter.frequency.setTargetAtTime(200*Math.pow(90,v/0.5),now,k);}else{n.filter.type='highpass';n.filter.frequency.setTargetAtTime(20*Math.pow(125,(v-0.5)/0.5),now,k);}}
+ else if(key==='rev')n.revSend.gain.setTargetAtTime(v,now,k);
+ else if(key==='dly')n.dlySend.gain.setTargetAtTime(v,now,k);
+ else if(key==='pan')n.panner.pan.setTargetAtTime(v*2-1,now,k);
+ updateSummary(ch);}
 
 function buildChannel(opt){var inGain=ctx.createGain();
  var eqLow=ctx.createBiquadFilter();eqLow.type='lowshelf';eqLow.frequency.value=120;
@@ -168,21 +243,23 @@ function buildChannel(opt){var inGain=ctx.createGain();
  for(var kk in k)applyKnob(ch,kk,k[kk]);
  recomputeGains();return ch;}
 
-function removeChannel(id){var ch=channels.get(id);if(!ch)return;try{if(ch.audio)ch.audio.pause();if(ch.track)ch.track.stop();var nn=ch.nodes;for(var key in nn){try{nn[key].disconnect();}catch(e){}}}catch(e){}if(ch.els.strip)ch.els.strip.remove();channels.delete(id);order=order.filter(function(x){return x!==id;});if(channels.size===0)$('rack').innerHTML='<div class="empty" id="emptyMsg">No sources.</div>';recomputeGains();}
+function removeChannel(id){var ch=channels.get(id);if(!ch)return;try{if(ch.audio)ch.audio.pause();if(ch.track)ch.track.stop();var nn=ch.nodes;for(var key in nn){try{nn[key].disconnect();}catch(e){}}}catch(e){}if(ch.els.strip)ch.els.strip.remove();channels.delete(id);order=order.filter(function(x){return x!==id;});if(channels.size===0){var ms=$('masterStrip');$('rack').innerHTML=emptyHTML;if(ms)$('rack').appendChild(ms);}recomputeGains();}
 
 function segCol(key){var s='<div class="mcol" data-mc="'+key+'">';for(var i=0;i<N;i++)s+='<div class="seg"></div>';return s+'</div>';}
-function knobHTML(ci,key,lab,val){return '<div class="kw"><div class="knob" data-ci="'+ci+'" data-k="'+key+'"><div class="ptr" style="transform:translateX(-50%) rotate('+deg(val)+'deg)"></div></div><span class="klab">'+lab+'</span><span class="kval" data-v="'+ci+'-'+key+'">'+knobReadout(key,val)+'</span></div>';}
+var KTIP={high:'high shelf, +/-20dB',mid:'mid bell, +/-20dB',low:'low shelf, +/-20dB',filt:'filter sweep: left closes a low-pass, right opens a high-pass, center = off',rev:'reverb send',dly:'delay send',pan:'stereo position'};
+function knobHTML(ci,key,lab,val){return '<div class="kw"><div class="knob" data-ci="'+ci+'" data-k="'+key+'" title="'+(KTIP[key]||'')+' -- drag up/down; double-click resets"><div class="ptr" style="transform:translateX(-50%) rotate('+deg(val)+'deg)"></div></div><span class="klab">'+lab+'</span><span class="kval" data-v="'+ci+'-'+key+'">'+knobReadout(key,val)+'</span></div>';}
 function subHTML(ci,c){if(c.type==='file')return '<div class="sub"><span>bpm</span><input class="x" style="width:42px" value="'+c.srcBPM+'" data-bpm="'+ci+'"><button class="mini'+(c.match?' on':'')+'" data-match="'+ci+'">match</button></div>';if(c.type==='composer')return '<div class="sub"><span>timbre</span><select class="x" style="width:64px" data-tim="'+ci+'"><option>sine</option><option>triangle</option><option>sawtooth</option><option>square</option></select></div>';return '<div class="sub">live tap - muted locally</div>';}
 function renderStrip(c){var ci=c.id,cp=CHIP[c.type];
  var fx=KO.map(function(k){return knobHTML(ci,k[0],k[1],c.k[k[0]]);}).join('');
  var s=document.createElement('div');s.className='strip';s.dataset.ci=ci;
  s.innerHTML='<div class="chead"><span class="cdot" style="background:'+c.color+'"></span><span class="cname">'+c.name+'</span></div>'+
-  '<div><span class="chip" style="background:'+cp.bg+';color:'+cp.fg+'">'+cp.t+'</span></div>'+subHTML(ci,c)+
+  '<div><span class="chip" style="background:'+cp.bg+';color:'+cp.fg+'">'+cp.t+'</span></div>'+
+  '<div class="ssum" data-sum="1" title="this strip at a glance">flat</div>'+subHTML(ci,c)+
   '<div class="kgrid">'+fx+'</div><div class="kgrid" style="grid-template-columns:1fr">'+knobHTML(ci,'pan','pan',c.k.pan)+'</div>'+
   '<div class="btns"><button class="tog solo'+(c.solo?' on':'')+'" data-solo="'+ci+'">solo</button><button class="tog mute'+(c.mute?' on':'')+'" data-mute="'+ci+'">mute</button><button class="grp '+(c.group||'')+'" data-grp="'+ci+'">'+(c.group||'-')+'</button></div>'+
   '<div class="fz"><div class="fader" data-ci="'+ci+'"><div class="ftrack"></div><div class="fcap"><div class="fline"></div></div></div><div class="meter">'+segCol(ci+'-l')+segCol(ci+'-r')+'</div></div>'+
   '<div class="db" data-db="'+ci+'">'+dbStr(c.fader)+'</div>';
- $('rack').appendChild(s);c.els.strip=s;
+ var ms=$('masterStrip');if(ms)$('rack').insertBefore(s,ms);else $('rack').appendChild(s);c.els.strip=s;
  var cap=s.querySelector('.fader .fcap');cap.style.top=capTop(s.querySelector('.fader'),c.fader)+'px';
  cache[ci+'-l']={segs:[].slice.call(s.querySelector('[data-mc="'+ci+'-l"]').children),peak:0};
  cache[ci+'-r']={segs:[].slice.call(s.querySelector('[data-mc="'+ci+'-r"]').children),peak:0};
@@ -190,21 +267,26 @@ function renderStrip(c){var ci=c.id,cp=CHIP[c.type];
  var ti=s.querySelector('[data-tim]');if(ti)ti.addEventListener('change',function(e){c.timbre=e.target.value;});}
 
 function groupGain(ch){var gA=Math.cos(xf*Math.PI/2),gB=Math.sin(xf*Math.PI/2);return ch.group==='L'?gA:ch.group==='R'?gB:1;}
-function recomputeGains(){if(!started)return;var soloAny=false;channels.forEach(function(c){if(c.solo)soloAny=true;});channels.forEach(function(ch){var t=(ch.mute||(soloAny&&!ch.solo))?0:ch.fader*groupGain(ch);ch.nodes.chGain.gain.setTargetAtTime(t,ctx.currentTime,0.03);});}
+function recomputeGains(tc){if(!started)return;var soloAny=false;channels.forEach(function(c){if(c.solo)soloAny=true;});channels.forEach(function(ch){var t=(ch.mute||(soloAny&&!ch.solo))?0:ch.fader*groupGain(ch);ch.nodes.chGain.gain.setTargetAtTime(t,ctx.currentTime,tc||0.03);updateSummary(ch);});}
 function applyRate(ch){if(!ch.audio)return;ch.audio.preservesPitch=true;ch.audio.mozPreservesPitch=true;ch.audio.webkitPreservesPitch=true;ch.audio.playbackRate=ch.match?Math.max(0.25,Math.min(4,bpm()/ch.srcBPM)):1;}
 function refreshRates(){channels.forEach(function(ch){if(ch.type==='file')applyRate(ch);});}
 
 var drag=null;
-function startDrag(e,kind,el){var p={kind:kind,el:el,y:e.clientY};if(kind==='knob'){p.ci=el.dataset.ci;p.k=el.dataset.k;p.start=channels.get(p.ci).k[p.k];}else if(kind==='fader'){p.master=!!el.dataset.master;p.ci=el.dataset.ci;p.start=p.master?master.gain.value:channels.get(p.ci).fader;}drag=p;e.preventDefault();}
+function startDrag(e,kind,el){if(dj.on)djStop('manual override -- your hands win');var p={kind:kind,el:el,y:e.clientY};if(kind==='knob'){p.ci=el.dataset.ci;p.k=el.dataset.k;p.start=channels.get(p.ci).k[p.k];}else if(kind==='fader'){p.master=!!el.dataset.master;p.ci=el.dataset.ci;p.start=p.master?master.gain.value:channels.get(p.ci).fader;}drag=p;e.preventDefault();}
 document.addEventListener('pointermove',function(e){if(!drag)return;
  if(drag.kind==='xfade'){var r=drag.el.getBoundingClientRect();setXfade((e.clientX-r.left)/r.width);return;}
  var dy=drag.y-e.clientY;
  if(drag.kind==='knob'){var nv=Math.max(0,Math.min(1,drag.start+dy/150));var ch=channels.get(drag.ci);ch.k[drag.k]=nv;applyKnob(ch,drag.k,nv);drag.el.querySelector('.ptr').style.transform='translateX(-50%) rotate('+deg(nv)+'deg)';var lab=$('rack').querySelector('[data-v="'+drag.ci+'-'+drag.k+'"]');if(lab)lab.textContent=knobReadout(drag.k,nv);}
- else{var v=Math.max(0,Math.min(1,drag.start+dy/150));var c=channels.get(drag.ci);c.fader=v;drag.el.querySelector('.fcap').style.top=capTop(drag.el,v)+'px';var db=$('rack').querySelector('[data-db="'+drag.ci+'"]');if(db)db.textContent=dbStr(v);recomputeGains();}});
+ else{var v=Math.max(0,Math.min(1,drag.start+dy/150));
+  if(drag.master){master.gain.setTargetAtTime(v,ctx.currentTime,0.02);syncMasterUI(v);return;}
+  var c=channels.get(drag.ci);c.fader=v;drag.el.querySelector('.fcap').style.top=capTop(drag.el,v)+'px';var db=$('rack').querySelector('[data-db="'+drag.ci+'"]');if(db)db.textContent=dbStr(v);recomputeGains();}});
 document.addEventListener('pointerup',function(){drag=null;});
 $('rack').addEventListener('pointerdown',function(e){var k=e.target.closest('.knob');if(k){startDrag(e,'knob',k);return;}var f=e.target.closest('.fader');if(f){startDrag(e,'fader',f);}});
 $('rack').addEventListener('dblclick',function(e){var k=e.target.closest('.knob');if(!k)return;var ci=k.dataset.ci,key=k.dataset.k,d=KDEF[key],ch=channels.get(ci);ch.k[key]=d;applyKnob(ch,key,d);k.querySelector('.ptr').style.transform='translateX(-50%) rotate('+deg(d)+'deg)';var lab=$('rack').querySelector('[data-v="'+ci+'-'+key+'"]');if(lab)lab.textContent=knobReadout(key,d);});
 $('rack').addEventListener('click',function(e){
+ var cta=e.target.closest('[data-cta]');
+ if(cta){var a=cta.dataset.cta;if(a==='start')startAudio();else if(a==='cap')captureSource();else if(a==='file')$('fileInput').click();return;}
+ if(dj.on&&e.target.closest('.tog,.grp,.mini'))djStop('manual override -- your hands win');
  var s=e.target.closest('[data-solo]');if(s){var c1=channels.get(s.dataset.solo);c1.solo=!c1.solo;s.classList.toggle('on',c1.solo);recomputeGains();return;}
  var m=e.target.closest('[data-mute]');if(m){var c2=channels.get(m.dataset.mute);c2.mute=!c2.mute;m.classList.toggle('on',c2.mute);recomputeGains();return;}
  var mt=e.target.closest('[data-match]');if(mt){var c3=channels.get(mt.dataset.match);c3.match=!c3.match;mt.classList.toggle('on',c3.match);applyRate(c3);return;}
@@ -212,7 +294,7 @@ $('rack').addEventListener('click',function(e){
 
 function setXfade(v){xf=Math.max(0,Math.min(1,v));$('xhandle').style.left=(xf*100)+'%';$('xval').textContent=xf<0.49?('L '+Math.round((0.5-xf)*200)+'%'):xf>0.51?('R '+Math.round((xf-0.5)*200)+'%'):'center';recomputeGains();}
 var xt=$('xtrack');
-xt.addEventListener('pointerdown',function(e){drag={kind:'xfade',el:xt};var r=xt.getBoundingClientRect();setXfade((e.clientX-r.left)/r.width);e.preventDefault();});
+xt.addEventListener('pointerdown',function(e){if(dj.on)djStop('manual override -- your hands win');drag={kind:'xfade',el:xt};var r=xt.getBoundingClientRect();setXfade((e.clientX-r.left)/r.width);e.preventDefault();});
 xt.addEventListener('dblclick',function(){setXfade(0.5);});
 xt.addEventListener('keydown',function(e){if(e.key==='ArrowLeft')setXfade(xf-0.02);else if(e.key==='ArrowRight')setXfade(xf+0.02);});
 
@@ -226,17 +308,207 @@ function loadUrl(){var u=$('urlIn').value.trim();if(u)addFileChannel(u,u.split('
 async function grabYouTube(){var u=$('grabUrl').value.trim(),base=$('grabBase').value.trim().replace(/\/$/,''),st=$('grabStart').value.trim(),en=$('grabEnd').value.trim();if(!u){setStatus('paste a youtube url');return;}if(!base){setStatus('set grabber base url');return;}var q=base+'/grab?url='+encodeURIComponent(u);if(st)q+='&start='+encodeURIComponent(st);if(en)q+='&end='+encodeURIComponent(en);setStatus('grabbing '+((st||en)?((st||'0:00')+' to '+(en||'+90s')):'first 90s')+' (yt-dlp)...');try{var r=await fetch(q);if(!r.ok)throw new Error('HTTP '+r.status);var d=await r.json();addFileChannel(base+d.file,(d.title||'YouTube'));}catch(e){setStatus('grab failed: '+(e.message||e));}}
 
 function flatten(ch){var n=0;ch.forEach(function(c){n+=c.length;});var o=new Float32Array(n),i=0;ch.forEach(function(c){o.set(c,i);i+=c.length;});return o;}
-function toggleLoop(){if(!started)startAudio();if(capLoop){finishLoop();return;}loopL=[];loopR=[];var bars=Math.max(1,parseInt($('loopBars').value)||4);loopTarget=Math.round(bars*4*(60/bpm())*ctx.sampleRate);capLoop=true;$('loopBtn').classList.add('on');$('loopBtn').textContent='rec '+bars+' bars';setStatus('loop recording '+bars+' bars');}
-function finishLoop(){if(!capLoop)return;capLoop=false;$('loopBtn').classList.remove('on');$('loopBtn').textContent='loop rec';var l=flatten(loopL),r=flatten(loopR);loopL=[];loopR=[];if(!l.length)return;var b=ctx.createBuffer(2,l.length,ctx.sampleRate);b.getChannelData(0).set(l);b.getChannelData(1).set(r);loopBuffer=b;restartLoop();setStatus('looping '+(l.length/ctx.sampleRate).toFixed(2)+'s');}
+function toggleLoop(){if(!started)startAudio();if(capLoop){finishLoop();return;}loopL=[];loopR=[];var bars=Math.max(1,parseInt($('loopBars').value)||4);loopTarget=Math.round(bars*4*(60/bpm())*ctx.sampleRate);capLoop=true;$('loopBtn').classList.add('on');$('loopBtn').textContent='rec '+bars+' bars';recUI();setStatus('loop recording '+bars+' bars');}
+function finishLoop(){if(!capLoop)return;capLoop=false;$('loopBtn').classList.remove('on');$('loopBtn').textContent='loop rec';recUI();var l=flatten(loopL),r=flatten(loopR);loopL=[];loopR=[];if(!l.length)return;var b=ctx.createBuffer(2,l.length,ctx.sampleRate);b.getChannelData(0).set(l);b.getChannelData(1).set(r);loopBuffer=b;restartLoop();setStatus('looping '+(l.length/ctx.sampleRate).toFixed(2)+'s');}
 function restartLoop(){if(!loopBuffer)return;if(loopSrc){try{loopSrc.stop();}catch(e){}}loopSrc=ctx.createBufferSource();loopSrc.buffer=loopBuffer;loopSrc.loop=true;loopSrc.connect(loopGain);loopSrc.start();}
 function loopStop(){if(loopSrc){try{loopSrc.stop();}catch(e){}loopSrc=null;}loopBuffer=null;setStatus('loop stopped');}
 function encodeWAV(l,r,rate){var n=l.length,buf=new ArrayBuffer(44+n*4),v=new DataView(buf),ws=function(o,s){for(var i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};ws(0,'RIFF');v.setUint32(4,36+n*4,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,2,true);v.setUint32(24,rate,true);v.setUint32(28,rate*4,true);v.setUint16(32,4,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,n*4,true);var o=44;for(var i=0;i<n;i++){var a=Math.max(-1,Math.min(1,l[i]));v.setInt16(o,a<0?a*0x8000:a*0x7FFF,true);o+=2;var b=Math.max(-1,Math.min(1,r[i]));v.setInt16(o,b<0?b*0x8000:b*0x7FFF,true);o+=2;}return new Blob([buf],{type:'audio/wav'});}
 function download(blob,name){var u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(function(){URL.revokeObjectURL(u);},1500);}
-function toggleWav(){if(!started)startAudio();if(capWav){capWav=false;$('wavBtn').classList.remove('on');$('wavBtn').textContent='rec wav';var l=flatten(wavL),r=flatten(wavR);wavL=[];wavR=[];if(l.length)download(encodeWAV(l,r,ctx.sampleRate),'dragon-mix.wav');setStatus('wav saved');}else{wavL=[];wavR=[];capWav=true;$('wavBtn').classList.add('on');$('wavBtn').textContent='stop wav';setStatus('recording wav...');}}
-function toggleWebm(){if(!started)startAudio();if(recorder&&recorder.state==='recording'){recorder.stop();return;}if(!streamDest)return;recChunks=[];recorder=new MediaRecorder(streamDest.stream);recorder.ondataavailable=function(e){if(e.data.size)recChunks.push(e.data);};recorder.onstop=function(){download(new Blob(recChunks,{type:'audio/webm'}),'dragon-mix.webm');$('webmBtn').classList.remove('on');$('webmBtn').textContent='webm';};recorder.start();$('webmBtn').classList.add('on');$('webmBtn').textContent='stop';}
+function toggleWav(){if(!started)startAudio();if(capWav){capWav=false;$('wavBtn').classList.remove('on');$('wavBtn').textContent='rec wav';var l=flatten(wavL),r=flatten(wavR);wavL=[];wavR=[];if(l.length)download(encodeWAV(l,r,ctx.sampleRate),'dragon-mix.wav');setStatus('wav saved');}else{wavL=[];wavR=[];capWav=true;$('wavBtn').classList.add('on');$('wavBtn').textContent='stop wav';setStatus('recording wav...');}recUI();}
+function toggleWebm(){if(!started)startAudio();if(recorder&&recorder.state==='recording'){recorder.stop();return;}if(!streamDest)return;recChunks=[];recorder=new MediaRecorder(streamDest.stream);recorder.ondataavailable=function(e){if(e.data.size)recChunks.push(e.data);};recorder.onstop=function(){download(new Blob(recChunks,{type:'audio/webm'}),'dragon-mix.webm');$('webmBtn').classList.remove('on');$('webmBtn').textContent='webm';recUI();};recorder.start();$('webmBtn').classList.add('on');$('webmBtn').textContent='stop';recUI();}
 function drawScope(){var c=$('scope'),x=c.getContext('2d');c.width=c.clientWidth;c.height=c.clientHeight;function loop(){requestAnimationFrame(loop);if(!started)return;var arr=new Uint8Array(masterAn.frequencyBinCount);masterAn.getByteTimeDomainData(arr);x.fillStyle='rgba(7,11,17,.5)';x.fillRect(0,0,c.width,c.height);x.strokeStyle='rgba(57,214,255,.85)';x.lineWidth=1.5;x.beginPath();var sw=c.width/arr.length,px=0;for(var i=0;i<arr.length;i++){var v=arr[i]/128,y=v*c.height/2;i?x.lineTo(px,y):x.moveTo(px,y);px+=sw;}x.lineTo(c.width,c.height/2);x.stroke();}loop();}
-function panic(){if(!started)return;loopStop();channels.forEach(function(ch){try{ch.nodes.chGain.gain.cancelScheduledValues(ctx.currentTime);ch.nodes.chGain.gain.setValueAtTime(0,ctx.currentTime);}catch(e){}});setTimeout(recomputeGains,120);}
+function panic(){if(!started)return;djStop('panic');loopStop();channels.forEach(function(ch){try{ch.nodes.chGain.gain.cancelScheduledValues(ctx.currentTime);ch.nodes.chGain.gain.setValueAtTime(0,ctx.currentTime);}catch(e){}});setTimeout(function(){recomputeGains();},120);}
 function downloadSelf(){var name='dragon_tempo_mixer.html';var dl=function(h){download(new Blob([h],{type:'text/html'}),name);};fetch(location.href).then(function(r){return r.text();}).then(dl).catch(function(){dl('<!DOCTYPE html>'+document.documentElement.outerHTML);});}
+
+// ===== AI plumbing: BYO Anthropic key, browser->provider direct =====
+// The key is yours, entered by you, kept in this browser's localStorage
+// (voidscale's posture: survives reload; "forget" wipes it) and sent only
+// to api.anthropic.com. Every AI feature is click-fired -- nothing in this
+// file auto-spends the key. One request in flight at a time.
+var aiBusy=false,undoStack=[];
+function aiKey(){return ($('aiKey').value||'').trim();}
+function aiModelId(){return ($('aiModel').value||'').trim()||'claude-sonnet-4-6';}
+function aiKeyUI(){var has=!!aiKey();$('aiKeyBtn').textContent=has?'key set':'add key';$('aiKeyBtn').classList.toggle('on',has);}
+function aiNeedKey(){$('aiKeyRow').style.display='inline-flex';setStatus('AI needs a key -- paste an Anthropic key (sk-ant-...) in the AI bar');}
+(function initAiKey(){try{var k=localStorage.getItem('dragonbridge_ant_key');if(k)$('aiKey').value=k;var m=localStorage.getItem('dragonbridge_ant_model');if(m)$('aiModel').value=m;}catch(e){}aiKeyUI();})();
+$('aiKey').addEventListener('change',function(){try{localStorage.setItem('dragonbridge_ant_key',$('aiKey').value);}catch(e){}aiKeyUI();});
+$('aiModel').addEventListener('change',function(){try{localStorage.setItem('dragonbridge_ant_model',$('aiModel').value);}catch(e){}});
+$('aiForget').addEventListener('click',function(e){e.preventDefault();$('aiKey').value='';try{localStorage.removeItem('dragonbridge_ant_key');}catch(e2){}aiKeyUI();setStatus('key forgotten -- cleared from this browser');});
+$('aiKeyBtn').onclick=function(){var r=$('aiKeyRow');r.style.display=r.style.display==='none'?'inline-flex':'none';};
+
+async function aiChat(sys,usr,maxTok){
+ if(!aiKey()){aiNeedKey();throw new Error('no-key');}
+ if(aiBusy)throw new Error('busy');
+ aiBusy=true;
+ try{
+  var res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':aiKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:aiModelId(),max_tokens:maxTok||1024,system:sys,messages:[{role:'user',content:usr}]})});
+  var data=await res.json().catch(function(){return {};});
+  if(!res.ok)throw new Error('API '+res.status+': '+JSON.stringify(data.error||data).slice(0,140));
+  return (data.content||[]).filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('\n');
+ }finally{aiBusy=false;}
+}
+function parseAiJson(text){var clean=text.replace(/```json/gi,'').replace(/```/g,'').trim();var f=clean.indexOf('{'),l=clean.lastIndexOf('}');return JSON.parse(f>=0?clean.slice(f,l+1):clean);}
+
+// ----- console snapshot / apply: shared by auto-mix, commands, scenes, undo.
+// applyMixState writes audio params through the same ramped paths the hands
+// use (applyKnob/recomputeGains -> setTargetAtTime), never the audio thread.
+function clamp01(v){return Math.max(0,Math.min(1,+v||0));}
+function captureMixState(){var strips=[];order.forEach(function(id){var c=channels.get(id);if(!c)return;var k={};for(var key in c.k)k[key]=c.k[key];strips.push({id:id,name:c.name,type:c.type,fader:c.fader,mute:c.mute,solo:c.solo,group:c.group,k:k});});return {xf:xf,strips:strips};}
+function refreshStripUI(c){var s=c.els.strip;if(!s)return;for(var key in c.k){var kn=s.querySelector('[data-k="'+key+'"]');if(kn)kn.querySelector('.ptr').style.transform='translateX(-50%) rotate('+deg(c.k[key])+'deg)';var lab=s.querySelector('[data-v="'+c.id+'-'+key+'"]');if(lab)lab.textContent=knobReadout(key,c.k[key]);}
+ var f=s.querySelector('.fader');if(f)f.querySelector('.fcap').style.top=capTop(f,c.fader)+'px';var db=s.querySelector('[data-db="'+c.id+'"]');if(db)db.textContent=dbStr(c.fader);
+ var so=s.querySelector('[data-solo]');if(so)so.classList.toggle('on',c.solo);var mu=s.querySelector('[data-mute]');if(mu)mu.classList.toggle('on',c.mute);
+ var g=s.querySelector('[data-grp]');if(g){g.className='grp'+(c.group?' '+c.group:'');g.textContent=c.group||'-';}}
+function applyMixState(st){if(!started||!st)return;if(typeof st.xf==='number')setXfade(clamp01(st.xf));
+ (st.strips||[]).forEach(function(p){var c=channels.get(p.id);if(!c)return;
+  if(typeof p.fader==='number')c.fader=clamp01(p.fader);
+  if(typeof p.mute==='boolean')c.mute=p.mute;
+  if(typeof p.solo==='boolean')c.solo=p.solo;
+  if(p.group==='L'||p.group==='R'||p.group===null)c.group=p.group;
+  if(p.k)for(var key in KDEF)if(typeof p.k[key]==='number'){c.k[key]=clamp01(p.k[key]);applyKnob(c,key,c.k[key]);}
+  refreshStripUI(c);});recomputeGains();}
+function pushUndo(){undoStack.push(captureMixState());if(undoStack.length>24)undoStack.shift();$('undoBtn').classList.add('on');}
+function doUndo(){var st=undoStack.pop();if(!st){setStatus('nothing to undo');return;}applyMixState(st);if(!undoStack.length)$('undoBtn').classList.remove('on');setStatus('mix restored to before the last AI change');}
+
+// ----- per-strip ear: RMS + low/mid/high band energy from the existing analysers
+function bandRead(c){var an=c.nodes.an,n=an.frequencyBinCount,fd=new Uint8Array(n);an.getByteFrequencyData(fd);var sr=ctx.sampleRate,lo=0,mid=0,hi=0,nl=0,nm=0,nh=0;
+ for(var i=0;i<n;i++){var f=i*sr/2/n,v=fd[i]/255;if(f<250){lo+=v;nl++;}else if(f<2000){mid+=v;nm++;}else{hi+=v;nh++;}}
+ var r2=function(x,cnt){return Math.round((cnt?x/cnt:0)*100)/100;};
+ return {rms:Math.round(rms(an,c.data)*100)/100,low:r2(lo,nl),mid:r2(mid,nm),high:r2(hi,nh)};}
+
+// ----- clamp an AI mix payload to reality; unknown strip ids are dropped,
+// every numeric field pinned to its real range, malformed -> caller keeps current state
+function clampAiMix(json){var out={strips:[]};if(typeof json.xf==='number')out.xf=clamp01(json.xf);
+ out.note=typeof json.note==='string'?json.note.slice(0,90):'';
+ (json.strips||[]).forEach(function(p){if(!p||!channels.has(p.id))return;var q={id:p.id,k:{}};
+  if(typeof p.fader==='number')q.fader=clamp01(p.fader);
+  if(typeof p.mute==='boolean')q.mute=p.mute;
+  if(p.group==='L'||p.group==='R'||p.group===null)q.group=p.group;
+  if(p.k)for(var key in KDEF)if(typeof p.k[key]==='number')q.k[key]=clamp01(p.k[key]);
+  out.strips.push(q);});return out;}
+
+var MIX_SCHEMA='Output ONLY raw JSON, no prose, no fences. Schema: {"xf":float,"strips":[{"id":string,"fader":float,"group":"L"|"R"|null,"mute":bool,"k":{"high":float,"mid":float,"low":float,"filt":float,"rev":float,"dly":float,"pan":float}}],"note":string}. ALL floats 0..1. k values are knob positions: 0.5 is neutral (high/mid/low are +/-20dB shelves centered at 0.5; filt 0.5 = off, toward 0 closes a low-pass, toward 1 opens a high-pass; rev/dly are effect sends with 0 dry; pan 0.5 = center). fader: 0 silent, 0.78 unity-ish, 1 hot. xf is the L/R group crossfader, 0.5 = center. Echo strip ids EXACTLY as given. note = one short line on what you did.';
+async function autoMix(){
+ if(!started||channels.size===0){setStatus('auto-mix needs sound first -- Start Audio and add a source');return;}
+ if(aiBusy){setStatus('AI is already working on something');return;}
+ var st=captureMixState();st.strips.forEach(function(p){p.ear=bandRead(channels.get(p.id));});
+ $('autoMixBtn').classList.add('on');setStatus('AI listening to '+st.strips.length+' strip(s)...');
+ try{
+  var text=await aiChat('You are a mix engineer on a small live console. '+MIX_SCHEMA+' Include EVERY strip in your answer.','Balance this mix. Console state with a per-strip ear read (rms + low/mid/high band energy, each 0..1):\n'+JSON.stringify(st)+'\nGoals: every source audible, no mud (carve competing low-mids), lead elements forward, gentle stereo spread, sends tasteful. Return JSON only.',1500);
+  var clamped=clampAiMix(parseAiJson(text));
+  if(!clamped.strips.length)throw new Error('no usable strips in reply');
+  pushUndo();applyMixState(clamped);
+  setStatus('AI mix applied'+(clamped.note?' -- '+clamped.note:'')+' (undo reverts)');
+ }catch(e){if(e.message!=='no-key')setStatus('auto-mix failed: '+e.message+' -- mix unchanged');}
+ finally{$('autoMixBtn').classList.remove('on');}
+}
+$('autoMixBtn').onclick=autoMix;
+$('undoBtn').onclick=doUndo;
+
+// ----- natural-language mix commands: sparse deltas on named strips,
+// same schema and clamp as auto-mix; nonsense is declined, state kept
+async function aiCommand(){
+ var cmd=$('aiCmd').value.trim();
+ if(!cmd){setStatus('type a mix instruction first');return;}
+ if(!started||channels.size===0){setStatus('commands need sound first -- Start Audio and add a source');return;}
+ if(aiBusy){setStatus('AI is already working on something');return;}
+ var st=captureMixState();st.strips.forEach(function(p){p.ear=bandRead(channels.get(p.id));});
+ $('aiCmdBtn').classList.add('on');setStatus('AI: "'+cmd.slice(0,40)+'"...');
+ try{
+  var text=await aiChat('You are a mix engineer taking one instruction on a live console. '+MIX_SCHEMA+' SPARSE replies: include ONLY the strips you are changing, and inside k ONLY the knobs you are moving; everything omitted stays untouched. Identify strips by their name in the instruction and answer with their id. If the instruction cannot be mapped to this console, output {"error":"one short reason"} instead.','Console state with per-strip ear read:\n'+JSON.stringify(st)+'\nInstruction: '+cmd+'\nReturn JSON only.',1200);
+  var json=parseAiJson(text);
+  if(json&&typeof json.error==='string'){setStatus('AI declined: '+json.error.slice(0,90)+' -- mix unchanged');return;}
+  var clamped=clampAiMix(json);
+  if(!clamped.strips.length&&typeof clamped.xf!=='number')throw new Error('reply changed nothing recognizable');
+  pushUndo();applyMixState(clamped);
+  setStatus('done'+(clamped.note?' -- '+clamped.note:'')+' (undo reverts)');$('aiCmd').value='';
+ }catch(e){if(e.message!=='no-key')setStatus('command failed: '+e.message+' -- mix unchanged');}
+ finally{$('aiCmdBtn').classList.remove('on');}
+}
+$('aiCmdBtn').onclick=aiCommand;
+$('aiCmd').addEventListener('keydown',function(e){if(e.key==='Enter')aiCommand();});
+
+// ----- scenes: named console snapshots. Manual save/recall is free and works
+// with zero AI; "vibe" asks the model for a complete scene and saves the
+// resolved result under the same name. Scenes are session-only on purpose:
+// strip ids exist only while their sources do.
+var scenes={};
+function sceneRefresh(){var sel=$('sceneSel'),names=Object.keys(scenes);sel.innerHTML=names.map(function(n){return '<option>'+n.replace(/[<>&"]/g,'')+'</option>';}).join('');var show=names.length?'':'none';sel.style.display=show;$('sceneRecallBtn').style.display=show;}
+function sceneSave(){if(!started||channels.size===0){setStatus('nothing to save yet -- Start Audio and add a source');return;}var n=$('sceneName').value.trim()||('scene '+(Object.keys(scenes).length+1));scenes[n]=captureMixState();sceneRefresh();$('sceneSel').value=n;setStatus('scene saved: '+n);}
+function sceneRecall(){var n=$('sceneSel').value,st=scenes[n];if(!st){setStatus('no scene selected');return;}pushUndo();applyMixState(st);setStatus('scene recalled: '+n+' (undo reverts)');}
+async function aiVibe(){
+ var vibe=$('sceneName').value.trim();
+ if(!vibe){setStatus('name the vibe first -- e.g. "late night warehouse"');return;}
+ if(!started||channels.size===0){setStatus('a vibe needs sound first -- Start Audio and add a source');return;}
+ if(aiBusy){setStatus('AI is already working on something');return;}
+ var st=captureMixState();st.strips.forEach(function(p){p.ear=bandRead(channels.get(p.id));});
+ $('vibeBtn').classList.add('on');setStatus('AI building "'+vibe+'"...');
+ try{
+  var text=await aiChat('You are a mix engineer designing a full console scene for a named vibe. '+MIX_SCHEMA+' Include EVERY strip; this is a complete snapshot, not a delta.','Console state with per-strip ear read:\n'+JSON.stringify(st)+'\nVibe: '+vibe+'\nReturn JSON only.',1500);
+  var clamped=clampAiMix(parseAiJson(text));
+  if(!clamped.strips.length)throw new Error('no usable strips in reply');
+  pushUndo();applyMixState(clamped);
+  scenes[vibe]=captureMixState();sceneRefresh();$('sceneSel').value=vibe;
+  setStatus('vibe applied + saved as scene: '+vibe+(clamped.note?' -- '+clamped.note:'')+' (undo reverts)');
+ }catch(e){if(e.message!=='no-key')setStatus('vibe failed: '+e.message+' -- mix unchanged');}
+ finally{$('vibeBtn').classList.remove('on');}
+}
+$('sceneSaveBtn').onclick=sceneSave;
+$('sceneRecallBtn').onclick=sceneRecall;
+$('vibeBtn').onclick=aiVibe;
+
+// ----- AI DJ: a live director on the existing BPM clock. It writes bounded
+// mix moves N bars AHEAD; each lands on its bar's downbeat as a
+// setTargetAtTime ramp, so the audio thread never waits on the network.
+// One request in flight; a manual touch anywhere on the console hands
+// control back; panic stops it dead; undo rewinds to before the set began.
+var dj={on:false,plan:{},plannedThrough:-1,intents:[],requesting:false,coolUntil:0};
+var DJ_LEAD=2,DJ_WINDOW=4;
+var DJ_SYS='You are a live AI DJ riding a small mixing console mid-set. You write the NEAR FUTURE: bounded mix moves for the requested bars, each landing on that bar\'s downbeat and ramping over a few beats. Output ONLY raw JSON, no prose, no fences. Schema: {"moves":[{"bar":int,"strip":string,"param":string,"to":float,"beats":int}],"intent":string}. bar = absolute bar number, only from the requested list. param one of fader,high,mid,low,filt,rev,dly,pan -- or "xfade" (then omit strip). to = target 0..1 with console knob semantics (0.5 neutral EQ; filt 0.5 off, lower closes a low-pass, higher opens a high-pass; fader 0.78 unity-ish; xfade 0 full L group, 1 full R). beats = ramp length 1..16. Write 1-4 moves per bar, not every bar needs moves. Build tension and release: sweep filters into transitions, trade groups on the crossfader when both exist, never slam everything at once. intent = one short phrase for the human watching.';
+function djApplyMove(mv){var sec=mv.beats*60/bpm(),tc=Math.max(0.05,sec/3);
+ if(mv.param==='xfade'){animXfade(mv.to,sec);return;}
+ var c=channels.get(mv.strip);if(!c)return;
+ if(mv.param==='fader'){c.fader=mv.to;recomputeGains(tc);}
+ else{c.k[mv.param]=mv.to;applyKnob(c,mv.param,mv.to,tc);}
+ refreshStripUI(c);}
+var xfAnim=null;
+function animXfade(to,sec){if(xfAnim)cancelAnimationFrame(xfAnim);var from=xf,t0=performance.now();
+ var step=function(now){var p=Math.min(1,(now-t0)/(Math.max(0.05,sec)*1000));setXfade(from+(to-from)*p);if(p<1&&dj.on)xfAnim=requestAnimationFrame(step);};xfAnim=requestAnimationFrame(step);}
+function djTick(bar,beat){
+ if(beat===0){var moves=dj.plan[bar];if(moves){moves.forEach(djApplyMove);delete dj.plan[bar];}}
+ if(dj.plannedThrough-bar<DJ_LEAD&&!dj.requesting&&!aiBusy&&beatCount>=dj.coolUntil)djRequest(bar);}
+async function djRequest(bar){
+ dj.requesting=true;
+ var st=captureMixState();st.strips.forEach(function(p){p.ear=bandRead(channels.get(p.id));});
+ var from=Math.max(bar+1,dj.plannedThrough+1),want=[];for(var i=0;i<DJ_WINDOW;i++)want.push(from+i);
+ try{
+  var text=await aiChat(DJ_SYS,'Console state with per-strip ear read:\n'+JSON.stringify(st)+'\nbpm '+bpm()+', playing bar '+bar+' now. Recent intents: '+(dj.intents.join(' | ')||'(opening)')+'. Write moves for bars '+want.join(', ')+'. Return JSON only.',1200);
+  if(!dj.on)return;
+  var json=parseAiJson(text),n=0;
+  (json.moves||[]).forEach(function(m){
+   if(!m||want.indexOf(m.bar)<0||typeof m.to!=='number')return;
+   var param=String(m.param||''),isX=param==='xfade';
+   if(!isX&&!channels.has(m.strip))return;
+   if(!isX&&!(param in KDEF)&&param!=='fader')return;
+   var mv={bar:m.bar|0,strip:isX?null:m.strip,param:param,to:clamp01(m.to),beats:Math.max(1,Math.min(16,(m.beats|0)||4))};
+   (dj.plan[mv.bar]=dj.plan[mv.bar]||[]).push(mv);n++;});
+  dj.plannedThrough=want[want.length-1];
+  if(typeof json.intent==='string'&&json.intent){dj.intents.push(json.intent.slice(0,60));if(dj.intents.length>6)dj.intents.shift();}
+  setStatus('DJ ('+n+' moves queued): '+((json.intent||'')+'').slice(0,80));
+ }catch(e){
+  if(e.message==='no-key'){djStop('no key');}
+  else{dj.coolUntil=beatCount+16;setStatus('DJ call failed ('+String(e.message).slice(0,60)+') -- holding current mix');}
+ }finally{dj.requesting=false;}
+}
+function djStart(){
+ if(!started||channels.size===0){setStatus('the DJ needs sound first -- Start Audio and add a source');return;}
+ if(!aiKey()){aiNeedKey();return;}
+ pushUndo();dj.on=true;dj.plan={};dj.plannedThrough=-1;dj.intents=[];dj.coolUntil=0;
+ $('djBtn').classList.add('on');$('djBtn').textContent='DJ live';
+ if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');startClock();}
+ setStatus('AI DJ engaged -- writes bars ahead on your key; touch anything to take over');
+}
+function djStop(reason){if(!dj.on)return;dj.on=false;dj.plan={};dj.requesting=false;$('djBtn').classList.remove('on');$('djBtn').textContent='AI DJ';setStatus('AI DJ off'+(reason?' -- '+reason:'')+' (undo rewinds the whole set)');}
+$('djBtn').onclick=function(){dj.on?djStop():djStart();};
 
 $('startBtn').onclick=startAudio;
 $('capBtn').onclick=captureSource;
@@ -246,9 +518,10 @@ $('grabBtn').onclick=grabYouTube;
 $('clockBtn').onclick=function(){clockOn=!clockOn;$('clockBtn').classList.toggle('on',clockOn);if(clockOn){if(!started)startAudio();startClock();}else stopClock();};
 $('bpm').onchange=function(){$('bpmReadout').textContent=bpm();refreshRates();if(clockOn)startClock();};
 $('resyncBtn').onclick=function(){pendingResync=true;if(!clockOn)doResync();else setStatus('re-sync queued for downbeat');};
-$('masterVol').oninput=function(e){$('masterReadout').textContent=e.target.value+'%';if(master)master.gain.setTargetAtTime(+e.target.value/100,ctx.currentTime,0.02);};
+$('masterVol').oninput=function(e){var v=+e.target.value/100;if(master){master.gain.setTargetAtTime(v,ctx.currentTime,0.02);syncMasterUI(v);}else $('masterReadout').textContent=e.target.value+'%';};
 $('loopBtn').onclick=toggleLoop;$('loopStopBtn').onclick=loopStop;$('wavBtn').onclick=toggleWav;$('webmBtn').onclick=toggleWebm;$('panicBtn').onclick=panic;$('dlBtn').onclick=downloadSelf;
+$('ytBtn').onclick=function(){var r=$('ytRow');var open=r.style.display==='none';r.style.display=open?'inline-flex':'none';$('ytBtn').classList.toggle('on',open);};
 setXfade(0.5);
 
-(function meters(){requestAnimationFrame(meters);if(!started)return;channels.forEach(function(ch){var v=rms(ch.nodes.an,ch.data);paint(ch.id+'-l',v);paint(ch.id+'-r',v);});})();
+(function meters(){requestAnimationFrame(meters);if(!started)return;channels.forEach(function(ch){var v=rms(ch.nodes.an,ch.data);paint(ch.id+'-l',v);paint(ch.id+'-r',v);});if(masterData){var mv=rms(masterAn,masterData);paint('master-l',mv);paint('master-r',mv);}})();
 </script></body></html>

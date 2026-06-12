@@ -1297,6 +1297,7 @@
                 triggerDrum(ctx, dest, note, Math.max(1, Math.min(127, velocity)) / 127, when);
                 return;
             }
+            if (ctx === audioContext) dragonBusNote(note, Math.max(1, Math.min(127, velocity)), Math.max(0.1, (tone.attack + tone.release) / 1000), (when - ctx.currentTime) * 1000);
             const v = Math.max(1, Math.min(127, velocity)) / 127;
             const freq = 440 * Math.pow(2, (note - 69) / 12);
             const atk = Math.max(0.003, tone.attack / 1000);
@@ -1367,6 +1368,25 @@
                     po.stop(when + dur + 0.05);
                 });
             }
+        }
+
+        // dragon-bus sender: mirrors live pitched notes to the Dragon Bridge
+        // mixer (tempo_mixer.html) open in another tab, which auto-spawns a
+        // composer strip for this instrument. The mixer RE-SYNTHESIZES these
+        // notes as simple oscillators (MIDI-style accompaniment) -- it does
+        // not receive V0ID_SCALE's real audio; use the mixer's "+ capture"
+        // to tap this tab's actual sound. Drums stay local.
+        let dragonBus = null;
+        const dragonBusId = 'voidscale-' + Math.random().toString(36).slice(2, 7);
+        try { dragonBus = new BroadcastChannel('dragon-bus'); } catch (e) {}
+        if (dragonBus) {
+            dragonBus.postMessage({ type: 'hello', id: dragonBusId, name: 'V0ID_SCALE' });
+            window.addEventListener('pagehide', () => { try { dragonBus.postMessage({ type: 'bye', id: dragonBusId }); } catch (e) {} });
+        }
+        function dragonBusNote(note, vel, dur, delayMs) {
+            if (!dragonBus) return;
+            const send = () => { try { dragonBus.postMessage({ type: 'note', id: dragonBusId, name: 'V0ID_SCALE', note: note, vel: vel, dur: dur }); } catch (e) {} };
+            if (delayMs > 1) setTimeout(send, delayMs); else send();
         }
 
         // Public realtime trigger used by pads, MIDI input, and one-shot previews.
