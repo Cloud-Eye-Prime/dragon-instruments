@@ -1,12 +1,14 @@
 # Dragon Instruments
 
 Two standalone browser instruments -- **V0ID_SCALE Labs** and **Ghatika** --
-with optional, bring-your-own-key AI. No build step, no backend, no account.
-Each instrument is a single HTML file you can open, host, or download and fork.
+plus **Dragon Bridge**, a tempo mixer that mixes them (and anything else),
+all with optional, bring-your-own-key AI. No build step, no backend, no
+account. Each is a single HTML file you can open, host, or download and fork.
 
 **Live:** https://heartbeat-pages-production.up.railway.app
 ( [V0ID_SCALE Labs](https://heartbeat-pages-production.up.railway.app/voidscale.html)
-. [Ghatika](https://heartbeat-pages-production.up.railway.app/ghatika.html) )
+. [Ghatika](https://heartbeat-pages-production.up.railway.app/ghatika.html)
+. [Dragon Bridge](https://heartbeat-pages-production.up.railway.app/tempo_mixer.html) )
 
 ---
 
@@ -44,6 +46,23 @@ Two self-contained instruments that run entirely in the browser:
   a collapsible section that shows a live one-line summary of its state while
   closed.
 
+- **Dragon Bridge** (`public/tempo_mixer.html`) -- a hand-rolled vanilla Web
+  Audio mixing console. Sources become strips: tab capture (muted locally),
+  local files, media URLs, or a section grabbed via a YouTube-grabber service
+  (folded behind an "add from YouTube" disclosure). Each strip has 3-band EQ,
+  a filter sweep, reverb/delay sends, pan, a fader, and L/R group routing
+  blended by a crossfader; there is a real master strip with the master
+  meter, loop capture on a BPM clock, and WAV/WebM recording with a record
+  state you cannot miss. Instruments playing in another tab join on their
+  own over the `dragon-bus` BroadcastChannel as composer strips -- see the
+  honesty note below about what that bus actually carries. The optional AI
+  (Anthropic, BYO key) adds four click-fired controls: **auto-mix** balances
+  the console from a per-strip analyser read, **natural-language commands**
+  move only what you name, **vibe** builds a full named scene (manual scene
+  save/recall works with zero AI), and an **AI DJ** writes bounded mix moves
+  bars ahead on the clock. Every AI change lands as smooth ramps, is one
+  undo away from gone, and a manual touch always wins over the DJ.
+
 See [docs/VOIDSCALE.md](docs/VOIDSCALE.md) and [docs/GHATIKA.md](docs/GHATIKA.md)
 for the concepts behind each instrument.
 
@@ -68,6 +87,15 @@ repository never contains a key.
   header (model `claude-sonnet-4-6`). Your key is entered in the top key
   bar and held **only in that tab's memory** for the session -- it is not saved
   to disk or `localStorage`, so closing the tab clears it.
+
+- **Dragon Bridge -> Anthropic.** Same endpoint, header, and default model
+  as Ghatika (the model id is editable next to the key field), but the key
+  is stored like V0ID_SCALE's: in the browser's `localStorage`, with a
+  **"forget"** link beside the field that wipes it at any time. That side of
+  the trade-off was picked deliberately -- mixing is a repeat activity and
+  every AI control is click-fired (nothing auto-spends the key; the AI DJ
+  only calls while you keep it engaged, and any manual touch disengages it).
+  With no key the whole console works normally; only the AI controls ask.
 
 In both cases the key is **entered by you, stored only in your own browser, and
 sent only to the AI provider.** It is never committed to this repo and never
@@ -100,6 +128,17 @@ them yourself:
   "AI compose" for an 8-bar phrase or start the "AI DJ" to have it steer the
   controls live. Live MIDI out and the AI both require a real hosted/local page
   (a chat-preview sandbox blocks them).
+
+- **Dragon Bridge:** open the page, click "add key" in the AI bar and paste
+  an Anthropic key (`sk-ant-...`), get at least one source playing, then:
+  **auto-mix** should ramp the console to a sane balance with a one-line
+  note in the status bar and **undo** restoring exactly what you had; a
+  command like "duck the pad under the lead" should move only the named
+  strips; **vibe** with a name like "late night warehouse" should reshape
+  the console and save a recallable scene; **AI DJ** should produce audible
+  on-beat moves a few bars after engaging -- grab any knob and it hands
+  control back, panic stops it dead. With no key, every AI control answers
+  with a plain "add a key" prompt instead of firing.
 
 ---
 
@@ -144,13 +183,14 @@ is the whole instrument -- open it, edit it, or host it anywhere.
 
 ```
 README.md
-package.json            static-serve config (serve public -l $PORT)
+package.json              static-serve config (serve public -l $PORT)
 .gitignore
-public/index.html       two-link landing menu
-public/voidscale.html   V0ID_SCALE Labs (one file)
-public/ghatika.html     Ghatika (one file)
-docs/VOIDSCALE.md       what V0ID_SCALE does and how its AI works
-docs/GHATIKA.md         what Ghatika does and how its AI works
+public/index.html         landing menu
+public/voidscale.html     V0ID_SCALE Labs (one file)
+public/ghatika.html       Ghatika (one file)
+public/tempo_mixer.html   Dragon Bridge tempo mixer (one file)
+docs/VOIDSCALE.md         what V0ID_SCALE does and how its AI works
+docs/GHATIKA.md           what Ghatika does and how its AI works
 ```
 
 ---
@@ -171,6 +211,18 @@ These are honest current gaps, listed so nobody is surprised:
 
 - **AI and Web MIDI need a real page and a key.** Both are bring-your-own-key /
   permission-gated and cannot be exercised in an automated sandbox.
+
+- **The dragon-bus carries notes, not sound.** When V0ID_SCALE or Ghatika
+  auto-join Dragon Bridge, the bus delivers note events (MIDI-style:
+  pitch / velocity / duration) and the mixer re-synthesizes them as plain
+  oscillators with a selectable timbre. That is accompaniment, not the
+  instrument's real voice -- drums are not sent at all. To mix what an
+  instrument actually sounds like, capture its tab with **+ capture**; the
+  bus strip and the captured strip can coexist.
+
+- **Dragon Bridge scenes are session-only.** A scene snapshots strips that
+  exist right now; strip ids die with their sources, so scenes are not
+  persisted across reloads on purpose.
 
 A dedicated bar/loop length independent of the Euclidean cycle, and sampled or
 imported instrument voices, are possible future work.
