@@ -97,6 +97,8 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
       <a href="#" id="aiForget" style="color:var(--mut);font-size:11px">forget</a>
       <input class="x" id="aiModel" value="claude-sonnet-4-6" style="width:140px" title="Anthropic model id">
     </span>
+    <button class="tbtn" id="autoMixBtn" title="AI listens to every strip (level + band energy) and balances the console. Costs one call on your key. Undo reverts exactly.">auto-mix</button>
+    <button class="tbtn" id="undoBtn" title="restore the console to before the last AI/scene change">undo</button>
     <span class="tdim">browser-to-Anthropic direct; nothing fires without a click</span>
   </div>
   <div class="xfader">
@@ -276,6 +278,61 @@ async function aiChat(sys,usr,maxTok){
  }finally{aiBusy=false;}
 }
 function parseAiJson(text){var clean=text.replace(/```json/gi,'').replace(/```/g,'').trim();var f=clean.indexOf('{'),l=clean.lastIndexOf('}');return JSON.parse(f>=0?clean.slice(f,l+1):clean);}
+
+// ----- console snapshot / apply: shared by auto-mix, commands, scenes, undo.
+// applyMixState writes audio params through the same ramped paths the hands
+// use (applyKnob/recomputeGains -> setTargetAtTime), never the audio thread.
+function clamp01(v){return Math.max(0,Math.min(1,+v||0));}
+function captureMixState(){var strips=[];order.forEach(function(id){var c=channels.get(id);if(!c)return;var k={};for(var key in c.k)k[key]=c.k[key];strips.push({id:id,name:c.name,type:c.type,fader:c.fader,mute:c.mute,solo:c.solo,group:c.group,k:k});});return {xf:xf,strips:strips};}
+function refreshStripUI(c){var s=c.els.strip;if(!s)return;for(var key in c.k){var kn=s.querySelector('[data-k="'+key+'"]');if(kn)kn.querySelector('.ptr').style.transform='translateX(-50%) rotate('+deg(c.k[key])+'deg)';var lab=s.querySelector('[data-v="'+c.id+'-'+key+'"]');if(lab)lab.textContent=knobReadout(key,c.k[key]);}
+ var f=s.querySelector('.fader');if(f)f.querySelector('.fcap').style.top=capTop(f,c.fader)+'px';var db=s.querySelector('[data-db="'+c.id+'"]');if(db)db.textContent=dbStr(c.fader);
+ var so=s.querySelector('[data-solo]');if(so)so.classList.toggle('on',c.solo);var mu=s.querySelector('[data-mute]');if(mu)mu.classList.toggle('on',c.mute);
+ var g=s.querySelector('[data-grp]');if(g){g.className='grp'+(c.group?' '+c.group:'');g.textContent=c.group||'-';}}
+function applyMixState(st){if(!started||!st)return;if(typeof st.xf==='number')setXfade(clamp01(st.xf));
+ (st.strips||[]).forEach(function(p){var c=channels.get(p.id);if(!c)return;
+  if(typeof p.fader==='number')c.fader=clamp01(p.fader);
+  if(typeof p.mute==='boolean')c.mute=p.mute;
+  if(typeof p.solo==='boolean')c.solo=p.solo;
+  if(p.group==='L'||p.group==='R'||p.group===null)c.group=p.group;
+  if(p.k)for(var key in KDEF)if(typeof p.k[key]==='number'){c.k[key]=clamp01(p.k[key]);applyKnob(c,key,c.k[key]);}
+  refreshStripUI(c);});recomputeGains();}
+function pushUndo(){undoStack.push(captureMixState());if(undoStack.length>24)undoStack.shift();$('undoBtn').classList.add('on');}
+function doUndo(){var st=undoStack.pop();if(!st){setStatus('nothing to undo');return;}applyMixState(st);if(!undoStack.length)$('undoBtn').classList.remove('on');setStatus('mix restored to before the last AI change');}
+
+// ----- per-strip ear: RMS + low/mid/high band energy from the existing analysers
+function bandRead(c){var an=c.nodes.an,n=an.frequencyBinCount,fd=new Uint8Array(n);an.getByteFrequencyData(fd);var sr=ctx.sampleRate,lo=0,mid=0,hi=0,nl=0,nm=0,nh=0;
+ for(var i=0;i<n;i++){var f=i*sr/2/n,v=fd[i]/255;if(f<250){lo+=v;nl++;}else if(f<2000){mid+=v;nm++;}else{hi+=v;nh++;}}
+ var r2=function(x,cnt){return Math.round((cnt?x/cnt:0)*100)/100;};
+ return {rms:Math.round(rms(an,c.data)*100)/100,low:r2(lo,nl),mid:r2(mid,nm),high:r2(hi,nh)};}
+
+// ----- clamp an AI mix payload to reality; unknown strip ids are dropped,
+// every numeric field pinned to its real range, malformed -> caller keeps current state
+function clampAiMix(json){var out={strips:[]};if(typeof json.xf==='number')out.xf=clamp01(json.xf);
+ out.note=typeof json.note==='string'?json.note.slice(0,90):'';
+ (json.strips||[]).forEach(function(p){if(!p||!channels.has(p.id))return;var q={id:p.id,k:{}};
+  if(typeof p.fader==='number')q.fader=clamp01(p.fader);
+  if(typeof p.mute==='boolean')q.mute=p.mute;
+  if(p.group==='L'||p.group==='R'||p.group===null)q.group=p.group;
+  if(p.k)for(var key in KDEF)if(typeof p.k[key]==='number')q.k[key]=clamp01(p.k[key]);
+  out.strips.push(q);});return out;}
+
+var MIX_SCHEMA='Output ONLY raw JSON, no prose, no fences. Schema: {"xf":float,"strips":[{"id":string,"fader":float,"group":"L"|"R"|null,"mute":bool,"k":{"high":float,"mid":float,"low":float,"filt":float,"rev":float,"dly":float,"pan":float}}],"note":string}. ALL floats 0..1. k values are knob positions: 0.5 is neutral (high/mid/low are +/-20dB shelves centered at 0.5; filt 0.5 = off, toward 0 closes a low-pass, toward 1 opens a high-pass; rev/dly are effect sends with 0 dry; pan 0.5 = center). fader: 0 silent, 0.78 unity-ish, 1 hot. xf is the L/R group crossfader, 0.5 = center. Echo strip ids EXACTLY as given. note = one short line on what you did.';
+async function autoMix(){
+ if(!started||channels.size===0){setStatus('auto-mix needs sound first -- Start Audio and add a source');return;}
+ if(aiBusy){setStatus('AI is already working on something');return;}
+ var st=captureMixState();st.strips.forEach(function(p){p.ear=bandRead(channels.get(p.id));});
+ $('autoMixBtn').classList.add('on');setStatus('AI listening to '+st.strips.length+' strip(s)...');
+ try{
+  var text=await aiChat('You are a mix engineer on a small live console. '+MIX_SCHEMA+' Include EVERY strip in your answer.','Balance this mix. Console state with a per-strip ear read (rms + low/mid/high band energy, each 0..1):\n'+JSON.stringify(st)+'\nGoals: every source audible, no mud (carve competing low-mids), lead elements forward, gentle stereo spread, sends tasteful. Return JSON only.',1500);
+  var clamped=clampAiMix(parseAiJson(text));
+  if(!clamped.strips.length)throw new Error('no usable strips in reply');
+  pushUndo();applyMixState(clamped);
+  setStatus('AI mix applied'+(clamped.note?' -- '+clamped.note:'')+' (undo reverts)');
+ }catch(e){if(e.message!=='no-key')setStatus('auto-mix failed: '+e.message+' -- mix unchanged');}
+ finally{$('autoMixBtn').classList.remove('on');}
+}
+$('autoMixBtn').onclick=autoMix;
+$('undoBtn').onclick=doUndo;
 
 $('startBtn').onclick=startAudio;
 $('capBtn').onclick=captureSource;
