@@ -17,7 +17,11 @@
 .bpm{font-size:18px;font-weight:600;color:#e7ecf2;min-width:38px;text-align:center}
 input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);border-radius:6px;padding:4px 6px;font-size:11px;font-family:inherit}
 .rack{display:flex;gap:8px;overflow-x:auto;padding:10px 2px;align-items:stretch;min-height:160px}
-.empty{color:var(--dim);padding:20px;font-style:italic;max-width:560px}
+.empty{color:var(--dim);padding:20px;max-width:620px}
+.ctarow{display:flex;gap:10px;flex-wrap:wrap}
+.cta{font-size:14px;padding:14px 18px;border-radius:10px;border:1px solid #2f5a72;background:#13283a;color:var(--cyan);cursor:pointer;font-family:inherit}
+.cta:hover{border-color:#3f7a9a;background:#16314a}
+.ctahint{margin-top:10px;font-size:11px;color:var(--dim);line-height:1.5}
 .strip{flex:0 0 124px;background:var(--pan);border:1px solid var(--bd);border-radius:10px;padding:9px 8px;display:flex;flex-direction:column;gap:7px}
 .strip.master{flex-basis:122px;background:var(--pan2);border-color:#274055}
 .chead{display:flex;align-items:center;gap:6px}
@@ -58,7 +62,6 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
 .scopewrap .lbl{font-size:10px;color:var(--mut);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
 #scope{width:100%;height:60px;display:block;background:#070b11;border:1px solid var(--bd);border-radius:6px}
 .statusbar{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:11px;color:var(--dim)}
-.gurl{flex:1;min-width:90px}
 </style></head>
 <body>
 <div class="console">
@@ -82,13 +85,24 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
     <button class="tbtn" id="capBtn">+ capture</button>
     <button class="tbtn" id="fileBtn">+ file</button>
     <input class="x" id="urlIn" placeholder="media url" style="width:140px"><button class="tbtn" id="urlBtn">load url</button>
+    <button class="tbtn" id="ytBtn">add from YouTube...</button>
+    <span id="ytRow" style="display:none;align-items:center;gap:6px;flex-wrap:wrap">
+      <input class="x" id="grabUrl" placeholder="youtube url" style="width:150px">
+      <input class="x" id="grabStart" placeholder="start (opt)" style="width:66px">
+      <input class="x" id="grabEnd" placeholder="end (opt)" style="width:66px">
+      <button class="tbtn" id="grabBtn" title="blank start/end pulls the first 90s; enter start/end like 0:42 / 1:12 for an exact window, max 30 min. Never downloads the whole file.">grab section</button>
+      <input class="x" id="grabBase" value="https://dragon-grabber-production.up.railway.app" style="width:210px" title="grabber service base url">
+    </span>
     <span style="flex:1"></span>
-    <input class="x" id="grabUrl" placeholder="youtube url" style="width:150px">
-    <input class="x" id="grabStart" placeholder="start (opt)" style="width:66px">
-    <input class="x" id="grabEnd" placeholder="end (opt)" style="width:66px">
-    <button class="tbtn" id="grabBtn">grab section</button>
   </div>
-  <div class="rack" id="rack"><div class="empty" id="emptyMsg">Start Audio, then route sources. For YouTube use Grab -- blank pulls the first 90s; enter start/end (like 0:42 / 1:12) for an exact window, max 30 min. It never downloads the whole file. + Capture taps a live tab (muted locally). + File loads a local track. Composers on the dragon-bus appear automatically. Each strip: 3-band EQ, filter sweep, reverb/delay sends, pan, fader. Route strips L or R, then blend with the crossfader below.</div></div>
+  <div class="rack" id="rack"><div class="empty" id="emptyMsg">
+    <div class="ctarow">
+      <button class="cta" data-cta="cap">+ Capture a tab</button>
+      <button class="cta" data-cta="file">+ Load a file</button>
+      <button class="cta" data-cta="start">Start Audio</button>
+    </div>
+    <div class="ctahint">Pick a source -- audio starts itself. Capture taps a live tab (muted locally); file loads a local track. Then hit <b>auto-mix</b> in the AI bar and let it balance the console. V0ID_SCALE / Ghatika playing in another tab join here on their own. Each strip: 3-band EQ, filter sweep, reverb/delay sends, pan, fader; route strips L or R and blend with the crossfader below.</div>
+  </div></div>
   <div class="tbar" id="aibar">
     <span class="title" style="font-size:11px">AI</span>
     <button class="tbtn" id="aiKeyBtn">add key</button>
@@ -118,7 +132,6 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
   <div class="scopewrap"><div class="lbl">master output</div><canvas id="scope"></canvas></div>
   <div class="statusbar">
     <span id="status">ready</span>
-    <input class="x gurl" id="grabBase" value="https://dragon-grabber-production.up.railway.app">
   </div>
 </div>
 <input type="file" id="fileInput" accept="audio/*" style="display:none">
@@ -134,6 +147,7 @@ var KO=[['high','hi'],['mid','mid'],['low','lo'],['filt','flt'],['rev','rev'],['
 var CHIP={composer:{bg:'#241a3a',fg:'#b794ff',t:'clock'},capture:{bg:'#0e2a36',fg:'#5fd9ff',t:'live'},file:{bg:'#2e2410',fg:'#ffc46b',t:'tempo'}};
 var COLS=['#39d6ff','#ffb347','#48e0a0','#ff6b9d','#9d6bff','#5fd9ff'];
 var $=function(id){return document.getElementById(id);};
+var emptyHTML=document.getElementById('emptyMsg').outerHTML;
 function setStatus(t){$('status').textContent=t;}
 function bpm(){return Math.max(40,Math.min(220,parseInt($('bpm').value)||100));}
 
@@ -188,7 +202,7 @@ function buildChannel(opt){var inGain=ctx.createGain();
  for(var kk in k)applyKnob(ch,kk,k[kk]);
  recomputeGains();return ch;}
 
-function removeChannel(id){var ch=channels.get(id);if(!ch)return;try{if(ch.audio)ch.audio.pause();if(ch.track)ch.track.stop();var nn=ch.nodes;for(var key in nn){try{nn[key].disconnect();}catch(e){}}}catch(e){}if(ch.els.strip)ch.els.strip.remove();channels.delete(id);order=order.filter(function(x){return x!==id;});if(channels.size===0)$('rack').innerHTML='<div class="empty" id="emptyMsg">No sources.</div>';recomputeGains();}
+function removeChannel(id){var ch=channels.get(id);if(!ch)return;try{if(ch.audio)ch.audio.pause();if(ch.track)ch.track.stop();var nn=ch.nodes;for(var key in nn){try{nn[key].disconnect();}catch(e){}}}catch(e){}if(ch.els.strip)ch.els.strip.remove();channels.delete(id);order=order.filter(function(x){return x!==id;});if(channels.size===0)$('rack').innerHTML=emptyHTML;recomputeGains();}
 
 function segCol(key){var s='<div class="mcol" data-mc="'+key+'">';for(var i=0;i<N;i++)s+='<div class="seg"></div>';return s+'</div>';}
 function knobHTML(ci,key,lab,val){return '<div class="kw"><div class="knob" data-ci="'+ci+'" data-k="'+key+'"><div class="ptr" style="transform:translateX(-50%) rotate('+deg(val)+'deg)"></div></div><span class="klab">'+lab+'</span><span class="kval" data-v="'+ci+'-'+key+'">'+knobReadout(key,val)+'</span></div>';}
@@ -225,6 +239,8 @@ document.addEventListener('pointerup',function(){drag=null;});
 $('rack').addEventListener('pointerdown',function(e){var k=e.target.closest('.knob');if(k){startDrag(e,'knob',k);return;}var f=e.target.closest('.fader');if(f){startDrag(e,'fader',f);}});
 $('rack').addEventListener('dblclick',function(e){var k=e.target.closest('.knob');if(!k)return;var ci=k.dataset.ci,key=k.dataset.k,d=KDEF[key],ch=channels.get(ci);ch.k[key]=d;applyKnob(ch,key,d);k.querySelector('.ptr').style.transform='translateX(-50%) rotate('+deg(d)+'deg)';var lab=$('rack').querySelector('[data-v="'+ci+'-'+key+'"]');if(lab)lab.textContent=knobReadout(key,d);});
 $('rack').addEventListener('click',function(e){
+ var cta=e.target.closest('[data-cta]');
+ if(cta){var a=cta.dataset.cta;if(a==='start')startAudio();else if(a==='cap')captureSource();else if(a==='file')$('fileInput').click();return;}
  if(dj.on&&e.target.closest('.tog,.grp,.mini'))djStop('manual override -- your hands win');
  var s=e.target.closest('[data-solo]');if(s){var c1=channels.get(s.dataset.solo);c1.solo=!c1.solo;s.classList.toggle('on',c1.solo);recomputeGains();return;}
  var m=e.target.closest('[data-mute]');if(m){var c2=channels.get(m.dataset.mute);c2.mute=!c2.mute;m.classList.toggle('on',c2.mute);recomputeGains();return;}
@@ -459,6 +475,7 @@ $('bpm').onchange=function(){$('bpmReadout').textContent=bpm();refreshRates();if
 $('resyncBtn').onclick=function(){pendingResync=true;if(!clockOn)doResync();else setStatus('re-sync queued for downbeat');};
 $('masterVol').oninput=function(e){$('masterReadout').textContent=e.target.value+'%';if(master)master.gain.setTargetAtTime(+e.target.value/100,ctx.currentTime,0.02);};
 $('loopBtn').onclick=toggleLoop;$('loopStopBtn').onclick=loopStop;$('wavBtn').onclick=toggleWav;$('webmBtn').onclick=toggleWebm;$('panicBtn').onclick=panic;$('dlBtn').onclick=downloadSelf;
+$('ytBtn').onclick=function(){var r=$('ytRow');var open=r.style.display==='none';r.style.display=open?'inline-flex':'none';$('ytBtn').classList.toggle('on',open);};
 setXfade(0.5);
 
 (function meters(){requestAnimationFrame(meters);if(!started)return;channels.forEach(function(ch){var v=rms(ch.nodes.an,ch.data);paint(ch.id+'-l',v);paint(ch.id+'-r',v);});})();
