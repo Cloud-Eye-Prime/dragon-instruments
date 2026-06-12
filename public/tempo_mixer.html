@@ -101,6 +101,11 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
     <button class="tbtn" id="undoBtn" title="restore the console to before the last AI/scene change">undo</button>
     <input class="x" id="aiCmd" placeholder="tell the mix: duck the pad under the lead" style="width:230px" title="natural-language mix command; only what you name moves. Costs one call on your key.">
     <button class="tbtn" id="aiCmdBtn">do it</button>
+    <input class="x" id="sceneName" placeholder="vibe / scene name" style="width:110px">
+    <button class="tbtn" id="sceneSaveBtn" title="snapshot the whole console under this name -- free, no AI">save scene</button>
+    <button class="tbtn" id="vibeBtn" title="ask the AI for a full console scene matching this vibe name. Costs one call on your key.">vibe</button>
+    <select class="x" id="sceneSel" style="display:none"></select>
+    <button class="tbtn" id="sceneRecallBtn" style="display:none" title="apply the selected scene (undo reverts). Scenes live for this session -- strips exist only while their sources do.">recall</button>
     <span class="tdim">browser-to-Anthropic direct; nothing fires without a click</span>
   </div>
   <div class="xfader">
@@ -358,6 +363,35 @@ async function aiCommand(){
 }
 $('aiCmdBtn').onclick=aiCommand;
 $('aiCmd').addEventListener('keydown',function(e){if(e.key==='Enter')aiCommand();});
+
+// ----- scenes: named console snapshots. Manual save/recall is free and works
+// with zero AI; "vibe" asks the model for a complete scene and saves the
+// resolved result under the same name. Scenes are session-only on purpose:
+// strip ids exist only while their sources do.
+var scenes={};
+function sceneRefresh(){var sel=$('sceneSel'),names=Object.keys(scenes);sel.innerHTML=names.map(function(n){return '<option>'+n.replace(/[<>&"]/g,'')+'</option>';}).join('');var show=names.length?'':'none';sel.style.display=show;$('sceneRecallBtn').style.display=show;}
+function sceneSave(){if(!started||channels.size===0){setStatus('nothing to save yet -- Start Audio and add a source');return;}var n=$('sceneName').value.trim()||('scene '+(Object.keys(scenes).length+1));scenes[n]=captureMixState();sceneRefresh();$('sceneSel').value=n;setStatus('scene saved: '+n);}
+function sceneRecall(){var n=$('sceneSel').value,st=scenes[n];if(!st){setStatus('no scene selected');return;}pushUndo();applyMixState(st);setStatus('scene recalled: '+n+' (undo reverts)');}
+async function aiVibe(){
+ var vibe=$('sceneName').value.trim();
+ if(!vibe){setStatus('name the vibe first -- e.g. "late night warehouse"');return;}
+ if(!started||channels.size===0){setStatus('a vibe needs sound first -- Start Audio and add a source');return;}
+ if(aiBusy){setStatus('AI is already working on something');return;}
+ var st=captureMixState();st.strips.forEach(function(p){p.ear=bandRead(channels.get(p.id));});
+ $('vibeBtn').classList.add('on');setStatus('AI building "'+vibe+'"...');
+ try{
+  var text=await aiChat('You are a mix engineer designing a full console scene for a named vibe. '+MIX_SCHEMA+' Include EVERY strip; this is a complete snapshot, not a delta.','Console state with per-strip ear read:\n'+JSON.stringify(st)+'\nVibe: '+vibe+'\nReturn JSON only.',1500);
+  var clamped=clampAiMix(parseAiJson(text));
+  if(!clamped.strips.length)throw new Error('no usable strips in reply');
+  pushUndo();applyMixState(clamped);
+  scenes[vibe]=captureMixState();sceneRefresh();$('sceneSel').value=vibe;
+  setStatus('vibe applied + saved as scene: '+vibe+(clamped.note?' -- '+clamped.note:'')+' (undo reverts)');
+ }catch(e){if(e.message!=='no-key')setStatus('vibe failed: '+e.message+' -- mix unchanged');}
+ finally{$('vibeBtn').classList.remove('on');}
+}
+$('sceneSaveBtn').onclick=sceneSave;
+$('sceneRecallBtn').onclick=sceneRecall;
+$('vibeBtn').onclick=aiVibe;
 
 $('startBtn').onclick=startAudio;
 $('capBtn').onclick=captureSource;
