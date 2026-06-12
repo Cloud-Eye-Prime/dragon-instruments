@@ -99,6 +99,8 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
     </span>
     <button class="tbtn" id="autoMixBtn" title="AI listens to every strip (level + band energy) and balances the console. Costs one call on your key. Undo reverts exactly.">auto-mix</button>
     <button class="tbtn" id="undoBtn" title="restore the console to before the last AI/scene change">undo</button>
+    <input class="x" id="aiCmd" placeholder="tell the mix: duck the pad under the lead" style="width:230px" title="natural-language mix command; only what you name moves. Costs one call on your key.">
+    <button class="tbtn" id="aiCmdBtn">do it</button>
     <span class="tdim">browser-to-Anthropic direct; nothing fires without a click</span>
   </div>
   <div class="xfader">
@@ -333,6 +335,29 @@ async function autoMix(){
 }
 $('autoMixBtn').onclick=autoMix;
 $('undoBtn').onclick=doUndo;
+
+// ----- natural-language mix commands: sparse deltas on named strips,
+// same schema and clamp as auto-mix; nonsense is declined, state kept
+async function aiCommand(){
+ var cmd=$('aiCmd').value.trim();
+ if(!cmd){setStatus('type a mix instruction first');return;}
+ if(!started||channels.size===0){setStatus('commands need sound first -- Start Audio and add a source');return;}
+ if(aiBusy){setStatus('AI is already working on something');return;}
+ var st=captureMixState();st.strips.forEach(function(p){p.ear=bandRead(channels.get(p.id));});
+ $('aiCmdBtn').classList.add('on');setStatus('AI: "'+cmd.slice(0,40)+'"...');
+ try{
+  var text=await aiChat('You are a mix engineer taking one instruction on a live console. '+MIX_SCHEMA+' SPARSE replies: include ONLY the strips you are changing, and inside k ONLY the knobs you are moving; everything omitted stays untouched. Identify strips by their name in the instruction and answer with their id. If the instruction cannot be mapped to this console, output {"error":"one short reason"} instead.','Console state with per-strip ear read:\n'+JSON.stringify(st)+'\nInstruction: '+cmd+'\nReturn JSON only.',1200);
+  var json=parseAiJson(text);
+  if(json&&typeof json.error==='string'){setStatus('AI declined: '+json.error.slice(0,90)+' -- mix unchanged');return;}
+  var clamped=clampAiMix(json);
+  if(!clamped.strips.length&&typeof clamped.xf!=='number')throw new Error('reply changed nothing recognizable');
+  pushUndo();applyMixState(clamped);
+  setStatus('done'+(clamped.note?' -- '+clamped.note:'')+' (undo reverts)');$('aiCmd').value='';
+ }catch(e){if(e.message!=='no-key')setStatus('command failed: '+e.message+' -- mix unchanged');}
+ finally{$('aiCmdBtn').classList.remove('on');}
+}
+$('aiCmdBtn').onclick=aiCommand;
+$('aiCmd').addEventListener('keydown',function(e){if(e.key==='Enter')aiCommand();});
 
 $('startBtn').onclick=startAudio;
 $('capBtn').onclick=captureSource;
