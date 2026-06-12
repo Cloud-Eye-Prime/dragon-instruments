@@ -89,6 +89,16 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
     <button class="tbtn" id="grabBtn">grab section</button>
   </div>
   <div class="rack" id="rack"><div class="empty" id="emptyMsg">Start Audio, then route sources. For YouTube use Grab -- blank pulls the first 90s; enter start/end (like 0:42 / 1:12) for an exact window, max 30 min. It never downloads the whole file. + Capture taps a live tab (muted locally). + File loads a local track. Composers on the dragon-bus appear automatically. Each strip: 3-band EQ, filter sweep, reverb/delay sends, pan, fader. Route strips L or R, then blend with the crossfader below.</div></div>
+  <div class="tbar" id="aibar">
+    <span class="title" style="font-size:11px">AI</span>
+    <button class="tbtn" id="aiKeyBtn">add key</button>
+    <span id="aiKeyRow" style="display:none;align-items:center;gap:6px">
+      <input class="x" id="aiKey" type="password" placeholder="sk-ant-... (stays in this browser)" style="width:190px">
+      <a href="#" id="aiForget" style="color:var(--mut);font-size:11px">forget</a>
+      <input class="x" id="aiModel" value="claude-sonnet-4-6" style="width:140px" title="Anthropic model id">
+    </span>
+    <span class="tdim">browser-to-Anthropic direct; nothing fires without a click</span>
+  </div>
   <div class="xfader">
     <span class="xlab l">L group</span>
     <div class="xtrack" id="xtrack" tabindex="0"><div class="xcenter"></div><div class="xhandle" id="xhandle"></div></div>
@@ -237,6 +247,35 @@ function toggleWebm(){if(!started)startAudio();if(recorder&&recorder.state==='re
 function drawScope(){var c=$('scope'),x=c.getContext('2d');c.width=c.clientWidth;c.height=c.clientHeight;function loop(){requestAnimationFrame(loop);if(!started)return;var arr=new Uint8Array(masterAn.frequencyBinCount);masterAn.getByteTimeDomainData(arr);x.fillStyle='rgba(7,11,17,.5)';x.fillRect(0,0,c.width,c.height);x.strokeStyle='rgba(57,214,255,.85)';x.lineWidth=1.5;x.beginPath();var sw=c.width/arr.length,px=0;for(var i=0;i<arr.length;i++){var v=arr[i]/128,y=v*c.height/2;i?x.lineTo(px,y):x.moveTo(px,y);px+=sw;}x.lineTo(c.width,c.height/2);x.stroke();}loop();}
 function panic(){if(!started)return;loopStop();channels.forEach(function(ch){try{ch.nodes.chGain.gain.cancelScheduledValues(ctx.currentTime);ch.nodes.chGain.gain.setValueAtTime(0,ctx.currentTime);}catch(e){}});setTimeout(recomputeGains,120);}
 function downloadSelf(){var name='dragon_tempo_mixer.html';var dl=function(h){download(new Blob([h],{type:'text/html'}),name);};fetch(location.href).then(function(r){return r.text();}).then(dl).catch(function(){dl('<!DOCTYPE html>'+document.documentElement.outerHTML);});}
+
+// ===== AI plumbing: BYO Anthropic key, browser->provider direct =====
+// The key is yours, entered by you, kept in this browser's localStorage
+// (voidscale's posture: survives reload; "forget" wipes it) and sent only
+// to api.anthropic.com. Every AI feature is click-fired -- nothing in this
+// file auto-spends the key. One request in flight at a time.
+var aiBusy=false,undoStack=[];
+function aiKey(){return ($('aiKey').value||'').trim();}
+function aiModelId(){return ($('aiModel').value||'').trim()||'claude-sonnet-4-6';}
+function aiKeyUI(){var has=!!aiKey();$('aiKeyBtn').textContent=has?'key set':'add key';$('aiKeyBtn').classList.toggle('on',has);}
+function aiNeedKey(){$('aiKeyRow').style.display='inline-flex';setStatus('AI needs a key -- paste an Anthropic key (sk-ant-...) in the AI bar');}
+(function initAiKey(){try{var k=localStorage.getItem('dragonbridge_ant_key');if(k)$('aiKey').value=k;var m=localStorage.getItem('dragonbridge_ant_model');if(m)$('aiModel').value=m;}catch(e){}aiKeyUI();})();
+$('aiKey').addEventListener('change',function(){try{localStorage.setItem('dragonbridge_ant_key',$('aiKey').value);}catch(e){}aiKeyUI();});
+$('aiModel').addEventListener('change',function(){try{localStorage.setItem('dragonbridge_ant_model',$('aiModel').value);}catch(e){}});
+$('aiForget').addEventListener('click',function(e){e.preventDefault();$('aiKey').value='';try{localStorage.removeItem('dragonbridge_ant_key');}catch(e2){}aiKeyUI();setStatus('key forgotten -- cleared from this browser');});
+$('aiKeyBtn').onclick=function(){var r=$('aiKeyRow');r.style.display=r.style.display==='none'?'inline-flex':'none';};
+
+async function aiChat(sys,usr,maxTok){
+ if(!aiKey()){aiNeedKey();throw new Error('no-key');}
+ if(aiBusy)throw new Error('busy');
+ aiBusy=true;
+ try{
+  var res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':aiKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:aiModelId(),max_tokens:maxTok||1024,system:sys,messages:[{role:'user',content:usr}]})});
+  var data=await res.json().catch(function(){return {};});
+  if(!res.ok)throw new Error('API '+res.status+': '+JSON.stringify(data.error||data).slice(0,140));
+  return (data.content||[]).filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('\n');
+ }finally{aiBusy=false;}
+}
+function parseAiJson(text){var clean=text.replace(/```json/gi,'').replace(/```/g,'').trim();var f=clean.indexOf('{'),l=clean.lastIndexOf('}');return JSON.parse(f>=0?clean.slice(f,l+1):clean);}
 
 $('startBtn').onclick=startAudio;
 $('capBtn').onclick=captureSource;
