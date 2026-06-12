@@ -13,6 +13,22 @@
     function dl(html){var b=new Blob([html],{type:'text/html'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download=name||'page.html';a.click();setTimeout(function(){URL.revokeObjectURL(u);},1500);}
     fetch(location.href,{cache:'no-store'}).then(function(r){return r.text();}).then(dl).catch(function(){dl('<!doctype html>'+document.documentElement.outerHTML);});
   }
+  // dragon-bus sender: mirrors live melodic notes to the Dragon Bridge mixer
+  // (tempo_mixer.html) open in another tab, which auto-spawns a composer
+  // strip for this instrument. The mixer RE-SYNTHESIZES these notes as simple
+  // oscillators (MIDI-style accompaniment) -- it does not receive Ghatika's
+  // real audio; use the mixer's "+ capture" to tap this tab's actual sound.
+  var DRAGON_BUS = null, DRAGON_BUS_ID = 'ghatika-' + Math.random().toString(36).slice(2, 7);
+  try { DRAGON_BUS = new BroadcastChannel('dragon-bus'); } catch (e) {}
+  if (DRAGON_BUS) {
+    DRAGON_BUS.postMessage({ type: 'hello', id: DRAGON_BUS_ID, name: 'Ghatika' });
+    window.addEventListener('pagehide', function () { try { DRAGON_BUS.postMessage({ type: 'bye', id: DRAGON_BUS_ID }); } catch (e) {} });
+  }
+  function dragonBusNote(note, vel, dur, delayMs) {
+    if (!DRAGON_BUS) return;
+    var send = function () { try { DRAGON_BUS.postMessage({ type: 'note', id: DRAGON_BUS_ID, name: 'Ghatika', note: note, vel: vel, dur: dur }); } catch (e) {} };
+    if (delayMs > 1) setTimeout(send, delayMs); else send();
+  }
 </script>
 <style>
   html,body{margin:0;background:#06070b;min-height:100%;}
@@ -577,7 +593,7 @@ function GhatikaV6() {
     const T = Tone.getTransport ? Tone.getTransport() : Tone.Transport; transportRef.current = T; T.bpm.value = bpmRef.current;
     applyFx();
     const fire = (v, vel, time) => { const k = kitRef.current; if (!k) return; const scaledVel = Math.max(0, Math.min(1, vel * (drumGainsRef.current[v] ?? 1))); triggerDrum(k, v, scaledVel, time); const idx = VOICES.indexOf(v); if (idx >= 0) lampValRef.current[idx] = Math.min(1, 0.45 + scaledVel); const s = stepCountRef.current % 32; activeStepRef.current = s; if (hitHistRef.current[v]) hitHistRef.current[v][s] = 1.0; };
-    const playNote = (m, durSec, time, vel) => { if (melVoiceRef.current) { try { melVoiceRef.current.triggerAttackRelease(midiToFreq(m), durSec, time, vel); } catch (e) {} } lastNoteRef.current = NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1); maybeMidiNote(m, vel, time, durSec); const s = stepCountRef.current % 32; noteHistRef.current = [{step: s, midi: m}, ...noteHistRef.current].slice(0, 32); };
+    const playNote = (m, durSec, time, vel) => { if (melVoiceRef.current) { try { melVoiceRef.current.triggerAttackRelease(midiToFreq(m), durSec, time, vel); } catch (e) {} } lastNoteRef.current = NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1); maybeMidiNote(m, vel, time, durSec); dragonBusNote(m, Math.max(1, Math.min(127, Math.round(vel * 110) + 12)), durSec, (time - (Tone.now ? Tone.now() : 0)) * 1000); const s = stepCountRef.current % 32; noteHistRef.current = [{step: s, midi: m}, ...noteHistRef.current].slice(0, 32); };
     repeatIdRef.current = T.scheduleRepeat((time) => {
       const step = stepCountRef.current; stepCountRef.current++;
       if (!playingRef.current) return;
