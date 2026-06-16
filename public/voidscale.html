@@ -19,6 +19,10 @@
             --text-dim: #6c757d;
             --glyph-color: #00ff41;
             --radius-alien: 3px;
+            /* Cloud-Eye type registers: dense control panel = monospace (the workhorse here) */
+            --font-mono: 'IBM Plex Mono', 'Roboto Mono', 'SF Mono', Menlo, Consolas, monospace;
+            --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            --font-reading: 'Charter', 'Iowan Old Style', 'Source Serif Pro', Georgia, serif;
         }
 
         * {
@@ -30,7 +34,7 @@
             padding: 0;
             background: var(--void-black);
             color: var(--text-void);
-            font-family: 'Courier New', monospace;
+            font-family: var(--font-mono);
             font-size: 13px;
             line-height: 1.4;
         }
@@ -174,7 +178,7 @@
             padding: 6px 8px;
             border-radius: var(--radius-alien);
             font-size: 12px;
-            font-family: 'Courier New', monospace;
+            font-family: var(--font-mono);
             transition: all 200ms ease;
         }
 
@@ -226,7 +230,7 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 150ms ease;
-            font-family: 'Courier New', monospace;
+            font-family: var(--font-mono);
             text-transform: uppercase;
             letter-spacing: 0.5px;
             display: inline-flex;
