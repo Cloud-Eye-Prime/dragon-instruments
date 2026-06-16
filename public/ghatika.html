@@ -31,14 +31,20 @@
   }
 </script>
 <style>
+  /* Cloud-Eye type registers: dense = mono, reading = serif (matches the JSX below) */
+  :root{
+    --font-mono:'IBM Plex Mono','Roboto Mono','SF Mono',Menlo,Consolas,monospace;
+    --font-reading:'Cormorant Garamond','Charter',Georgia,serif;
+    --font-sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
   html,body{margin:0;background:#06070b;min-height:100%;}
-  #keybar{font-family:'IBM Plex Mono',monospace;background:#0e1016;color:#e7e3da;padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid rgba(231,227,218,0.12);}
+  #keybar{font-family:var(--font-mono);background:#0e1016;color:#e7e3da;padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid rgba(231,227,218,0.12);}
   #keybar input{flex:1;min-width:220px;background:#06070b;color:#e7e3da;border:1px solid rgba(231,227,218,0.2);border-radius:6px;padding:6px 8px;font-family:inherit;font-size:12px;}
   #keybar button{background:#4a8fd4;color:#06070b;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:12px;}
   #keybar .lbl{font-size:11px;letter-spacing:1px;color:#878d9a;text-transform:uppercase;}
   #keybar .ok{color:#5fae8a;}
   #root{max-width:780px;margin:0 auto;padding:18px 10px 60px;}
-  .hint{font-family:'IBM Plex Mono',monospace;color:#878d9a;font-size:11px;line-height:1.6;padding:8px 14px;}
+  .hint{font-family:var(--font-mono);color:#878d9a;font-size:11px;line-height:1.6;padding:8px 14px;}
 </style>
 </head>
 <body>
