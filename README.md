@@ -8,7 +8,39 @@ account. Each is a single HTML file you can open, host, or download and fork.
 **Live:** https://heartbeat-pages-production.up.railway.app
 ( [V0ID_SCALE Labs](https://heartbeat-pages-production.up.railway.app/voidscale.html)
 . [Ghatika](https://heartbeat-pages-production.up.railway.app/ghatika.html)
-. [Dragon Bridge](https://heartbeat-pages-production.up.railway.app/tempo_mixer.html) )
+. [Dragon Bridge](https://heartbeat-pages-production.up.railway.app/tempo_mixer.html)
+. [Git Cosmos](https://heartbeat-pages-production.up.railway.app/git_cosmos.html) )
+
+---
+
+## Git Cosmos -- glide through your git history
+
+`public/git_cosmos.html` -- a 3D flythrough of any repo's history, adapted
+from the Cloud-Eye Librarian's "Cosmos" starfield into a memory-and-history
+instrument. Every **commit is a star**: time climbs the helix, **branch lanes
+ring outward**, **color is the author** (toggle to color by lane), **size is
+the churn** (lines changed), and **parent edges braid the DAG** -- merges show
+in rose. It breathes at 96 bpm, auto-rotates, and flies through the field on
+its own; drag to orbit, scroll to zoom, hover a commit for its message /
+author / date / +-, click to recenter, double-click to open it on your remote.
+
+One self-contained HTML file (Three.js from CDN) -- no backend, no key, no
+build. It reads a `history.json` you generate from any repo:
+
+```
+# in any git repo:
+python /path/to/tools/git_cosmos_export.py --all > history.json
+# then open git_cosmos.html and drop history.json onto it,
+# or serve the json beside the page:  git_cosmos.html?data=history.json
+```
+
+The exporter (`tools/git_cosmos_export.py`, Python 3.8+ stdlib + the `git`
+CLI, no pip installs) walks `git log`, does the classic commit-graph
+lane-packing so branches separate visibly, aggregates churn in one pass, and
+derives the commit-URL template from `origin` (GitHub / GitLab / Bitbucket).
+It invents nothing: fields git does not provide are emitted empty or null.
+A bundled `public/sample_history.json` (this repo's own history) makes the
+page alive on first open. Tests: `python -m pytest tools/ -q`.
 
 ---
 

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Git Cosmos -- glide through your history</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<style>
+  :root { --bg:#08070A; --gold:#C9A84C; --gold-dim:#8B7535; --amber:#D4A853; --text:#E8E0D0; --text-dim:#8A7E6E; --border:#2E2735; --green:#6FAF71; --red:#C06A6A; --serif:'Cormorant Garamond',Georgia,serif; --mono:'IBM Plex Mono',Consolas,monospace; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:var(--serif); }
+  #scene { position:fixed; inset:0; }
+  .overlay { position:fixed; pointer-events:none; }
+  .hdr { top:0; left:0; right:0; display:flex; align-items:baseline; gap:16px; padding:14px 22px; background:linear-gradient(to bottom, rgba(8,7,10,0.85), transparent); }
+  .hdr h1 { font-weight:500; font-size:1.4rem; letter-spacing:0.14em; color:var(--gold); }
+  .hdr .tag { font-family:var(--mono); font-size:0.66rem; color:var(--text-dim); letter-spacing:0.05em; }
+  .hdr .spacer { flex:1; }
+  .hdr .status { font-family:var(--mono); font-size:0.66rem; color:var(--text-dim); }
+  .hdr .status b { color:var(--green); }
+  .hdr .status.err b { color:var(--red); }
+  .hdr a, .hdr label.btn { pointer-events:auto; font-family:var(--mono); font-size:0.66rem; color:var(--amber); text-decoration:none; border:1px solid var(--border); border-radius:4px; padding:5px 11px; cursor:pointer; }
+  .hdr a:hover, .hdr label.btn:hover { border-color:var(--gold); background:rgba(201,168,76,0.08); }
+  .legend { bottom:16px; left:18px; font-family:var(--mono); font-size:0.62rem; color:var(--text-dim); background:rgba(8,7,10,0.6); border:1px solid var(--border); border-radius:6px; padding:9px 12px; line-height:1.6; backdrop-filter:blur(3px); max-width:230px; }
+  .legend .row { display:flex; align-items:center; gap:7px; }
+  .legend .sw { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .legend .pulse { margin-top:6px; color:var(--amber); }
+  .legend .hint { margin-top:6px; color:var(--gold-dim); }
+  .controls { bottom:16px; right:18px; font-family:var(--mono); font-size:0.62rem; color:var(--text-dim); background:rgba(8,7,10,0.6); border:1px solid var(--border); border-radius:6px; padding:9px 12px; line-height:1.7; text-align:right; pointer-events:auto; }
+  .controls label { display:block; cursor:pointer; }
+  .controls .k { color:var(--gold-dim); }
+  .tip { position:fixed; pointer-events:none; font-family:var(--serif); font-size:1rem; color:var(--text); background:rgba(8,7,10,0.94); border:1px solid var(--gold-dim); border-radius:6px; padding:8px 12px; max-width:380px; opacity:0; transition:opacity 0.12s; z-index:10; line-height:1.35; }
+  .tip .subj { color:var(--text); }
+  .tip .meta { font-family:var(--mono); font-size:0.6rem; color:var(--text-dim); margin-top:4px; }
+  .tip .churn .add { color:var(--green); } .tip .churn .del { color:var(--red); }
+  .drop { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(8,7,10,0.82); z-index:20; font-family:var(--mono); font-size:1rem; color:var(--amber); border:2px dashed var(--gold-dim); }
+  .drop.on { display:flex; }
+  .boot { position:fixed; inset:0; display:flex; flex-direction:column; gap:10px; align-items:center; justify-content:center; font-family:var(--mono); font-size:0.8rem; color:var(--text-dim); text-align:center; padding:24px; }
+  .boot code { color:var(--amber); }
+  .boot .big { font-family:var(--serif); font-size:1.5rem; color:var(--gold); letter-spacing:0.1em; }
+  .boot label.btn { pointer-events:auto; color:var(--amber); border:1px solid var(--gold-dim); border-radius:5px; padding:8px 16px; cursor:pointer; }
+  .boot label.btn:hover { background:rgba(201,168,76,0.08); }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="overlay hdr">
+  <h1>Git Cosmos</h1>
+  <span class="tag" id="repoTag">glide through your history</span>
+  <span class="spacer"></span>
+  <label class="btn">load history.json<input type="file" id="fileIn" accept=".json,application/json" style="display:none"></label>
+  <span class="status" id="status">no field loaded</span>
+</div>
+<div class="overlay legend" id="legendBox" style="display:none">
+  <div id="legendRows"></div>
+  <div class="pulse" id="pulse">&#9679; breathing at 96 bpm</div>
+  <div class="hint">drag orbit &middot; scroll zoom &middot; hover a commit</div>
+  <div class="hint">click recenter &middot; dbl-click opens on remote</div>
+</div>
+<div class="overlay controls" id="controlsBox" style="display:none">
+  <label><input type="checkbox" id="cFly" checked> flythrough</label>
+  <label><input type="checkbox" id="cSpin" checked> auto-rotate</label>
+  <label><input type="checkbox" id="cBreath" checked> 96bpm breath</label>
+  <label><input type="checkbox" id="cLinks" checked> show edges</label>
+  <label><input type="checkbox" id="cColorLane"> color by lane</label>
+  <div class="k" style="margin-top:5px">r &middot; reset view</div>
+</div>
+<div class="tip" id="tip"></div>
+<div class="drop" id="drop">drop a history.json to enter the field</div>
+<div class="boot" id="boot">
+  <div class="big">Git Cosmos</div>
+  <div>Every commit is a star. Time climbs the helix, branches ring outward,<br>color is the author, size is the churn, and parent edges braid the DAG.</div>
+  <div style="margin-top:6px">Generate a field from any repo:<br><code>python git_cosmos_export.py &gt; history.json</code></div>
+  <label class="btn">choose history.json<input type="file" id="fileIn2" accept=".json,application/json" style="display:none"></label>
+  <div style="opacity:0.7">...or drop the file anywhere, or append <code>?data=history.json</code> to the URL.</div>
+  <div id="bootErr" style="color:var(--red)"></div>
+</div>
+<script>
+// Git Cosmos -- a shareable 3D flythrough of a git repo's history.
+// Sibling of the Librarian Cosmos starfield; here the stars are commits.
+// Data: a history.json from tools/git_cosmos_export.py. Loaded by (in order)
+//   ?data=URL  ->  drag-drop / file picker  ->  bundled sample_history.json.
+// No backend, no key, no build. One file you can open, host, or fork.
+const BPM = 96, BEAT = 60 / BPM;
+const LANE_PALETTE = [0xD4A853,0x6A8FC0,0x6FAF71,0xB5728F,0x8A6CB8,0x5FA8A0,0xC06A6A,0xC9A84C];
+let DOC = null, C = [], bySha = {}, idIndex = {};
+let scene, camera, renderer, starPoints, linkLines, raycaster, mouse, nodeMeta = [];
+let rotate = true, breath = true, showLinks = true, flythrough = true, colorByLane = false;
+let camTheta = 0.6, camPhi = 1.12, camR = 620, camTarget = new THREE.Vector3(0,0,0);
+let camTargetEase = new THREE.Vector3(0,0,0);
+let dragging = false, panning = false, dragMoved = false, lastX = 0, lastY = 0, lastMouseX = 0, lastMouseY = 0;
+let flyT = 0, HEIGHT = 400, authorColors = {};
+
+// ---- color helpers ----------------------------------------------------------
+function hslToRgb(h, s, l) {
+  const a = s * Math.min(l, 1 - l);
+  const f = n => { const k = (n + h * 12) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+  return [f(0), f(8), f(4)];
+}
+function hashStr(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967295; }
+function authorRgb(name) { const h = hashStr(name || '?'); return hslToRgb(h, 0.55, 0.62); }
+function laneRgb(lane) { const c = new THREE.Color(LANE_PALETTE[lane % LANE_PALETTE.length]); return [c.r, c.g, c.b]; }
+
+// ---- data load --------------------------------------------------------------
+function setStatus(txt, err) { const s = document.getElementById('status'); s.classList.toggle('err', !!err); s.innerHTML = txt; }
+async function loadFromUrl(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return await r.json();
+}
+function ingest(doc) {
+  if (!doc || !Array.isArray(doc.commits) || !doc.commits.length) throw new Error('no commits in file');
+  DOC = doc;
+  C = doc.commits.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0) || (a.sha < b.sha ? -1 : 1));
+  bySha = {}; idIndex = {}; authorColors = {};
+  C.forEach((c, i) => { bySha[c.sha] = c; idIndex[c.sha] = i; });
+  document.getElementById('boot').style.display = 'none';
+  document.getElementById('legendBox').style.display = '';
+  document.getElementById('controlsBox').style.display = '';
+  const tag = document.getElementById('repoTag');
+  tag.textContent = (doc.repo || 'repo') + ' -- ' + C.length + ' commits, ' + (doc.lanes || 1) + ' lanes';
+  setStatus('field of <b>' + C.length + '</b> commits');
+  buildCosmos();
+  buildLegend();
+}
+async function boot() {
+  const params = new URLSearchParams(location.search);
+  const src = params.get('data');
+  const candidates = src ? [src] : ['sample_history.json'];
+  for (const url of candidates) {
+    try { ingest(await loadFromUrl(url)); return; }
+    catch (e) { /* fall through to the next / to the boot prompt */ }
+  }
+  // nothing auto-loaded: the boot prompt stays, awaiting a dropped file.
+  setStatus('no field loaded', true);
+}
+function readFile(file) {
+  const fr = new FileReader();
+  fr.onload = () => { try { ingest(JSON.parse(fr.result)); } catch (e) { document.getElementById('bootErr').textContent = 'could not read: ' + e.message; } };
+  fr.readAsText(file);
+}
+
+// ---- build the field --------------------------------------------------------
+function buildLegend() {
+  const box = document.getElementById('legendRows');
+  if (colorByLane) {
+    const lanes = Math.min(DOC.lanes || 1, LANE_PALETTE.length);
+    let h = '<div style="color:var(--gold-dim);margin-bottom:3px">colored by lane (branch)</div>';
+    for (let i = 0; i < lanes; i++) h += '<div class="row"><span class="sw" style="background:#' + LANE_PALETTE[i].toString(16).padStart(6, '0') + '"></span> lane ' + i + '</div>';
+    box.innerHTML = h;
+  } else {
+    const counts = {};
+    C.forEach(c => { counts[c.author] = (counts[c.author] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    let h = '<div style="color:var(--gold-dim);margin-bottom:3px">colored by author</div>';
+    top.forEach(([name, n]) => { const [r, g, b] = authorRgb(name); const hex = '#' + [r, g, b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join(''); h += '<div class="row"><span class="sw" style="background:' + hex + '"></span> ' + escapeHtml(name.slice(0, 20)) + ' (' + n + ')</div>'; });
+    box.innerHTML = h;
+  }
+}
+function positionOf(i) {
+  // Time-helix: each commit advances the angle and climbs; the lane rings it
+  // outward. You glide up the helix, orbiting, as the repo's life unspools.
+  const N = C.length;
+  const angle = i * 0.42;
+  const y = (N > 1 ? (i / (N - 1) - 0.5) : 0) * HEIGHT;
+  const radius = 70 + (C[i].lane || 0) * 30;
+  return new THREE.Vector3(radius * Math.cos(angle), y, radius * Math.sin(angle));
+}
+function buildCosmos() {
+  const canvas = document.getElementById('scene');
+  if (renderer) { renderer.dispose(); }
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x08070A, 0.0009);
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 6000);
+  raycaster = new THREE.Raycaster(); raycaster.params.Points.threshold = 6;
+  mouse = new THREE.Vector2(-2, -2);
+  HEIGHT = Math.max(300, C.length * 2.4);
+  const N = C.length;
+  const positions = new Float32Array(N * 3), colors = new Float32Array(N * 3), sizes = new Float32Array(N);
+  nodeMeta = [];
+  C.forEach((c, i) => {
+    const p = positionOf(i);
+    positions[i * 3] = p.x; positions[i * 3 + 1] = p.y; positions[i * 3 + 2] = p.z;
+    const [r, g, b] = colorByLane ? laneRgb(c.lane || 0) : authorRgb(c.author);
+    colors[i * 3] = r; colors[i * 3 + 1] = g; colors[i * 3 + 2] = b;
+    const churn = (c.insertions || 0) + (c.deletions || 0);
+    const merge = (c.parents || []).length > 1;
+    sizes[i] = 3 + Math.min(11, Math.sqrt(churn) * 0.8) + (merge ? 3 : 0);
+    nodeMeta.push({ c, i });
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uPulse: { value: 1.0 } },
+    vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: 'attribute float size; varying vec3 vColor; uniform float uPulse; void main(){ vColor=color; vec4 mv=modelViewMatrix*vec4(position,1.0); gl_PointSize=size*uPulse*(300.0/-mv.z); gl_Position=projectionMatrix*mv; }',
+    fragmentShader: 'varying vec3 vColor; void main(){ vec2 d=gl_PointCoord-vec2(0.5); float r=length(d); if(r>0.5)discard; float a=smoothstep(0.5,0.0,r); gl_FragColor=vec4(vColor, a); }'
+  });
+  if (starPoints) scene.remove(starPoints);
+  starPoints = new THREE.Points(geo, mat); scene.add(starPoints);
+  // parent edges -- the DAG, braiding lanes and descending the helix
+  const lpos = [], lcol = []; const lc = new THREE.Color();
+  C.forEach((c, i) => {
+    (c.parents || []).forEach(p => {
+      const j = idIndex[p]; if (j === undefined) return;
+      lpos.push(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2], positions[j * 3], positions[j * 3 + 1], positions[j * 3 + 2]);
+      const merge = (c.parents || []).length > 1;
+      lc.setHex(merge ? 0xB5728F : 0x8B7535);
+      lcol.push(lc.r, lc.g, lc.b, lc.r, lc.g, lc.b);
+    });
+  });
+  const lgeo = new THREE.BufferGeometry();
+  lgeo.setAttribute('position', new THREE.Float32BufferAttribute(lpos, 3));
+  lgeo.setAttribute('color', new THREE.Float32BufferAttribute(lcol, 3));
+  if (linkLines) scene.remove(linkLines);
+  linkLines = new THREE.LineSegments(lgeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(linkLines);
+  camTarget.set(0, 0, 0); camTargetEase.set(0, 0, 0); flyT = 0;
+  if (!buildCosmos._bound) { bindControls(); buildCosmos._bound = true; animate(); }
+}
+function recolor() {
+  if (!starPoints) return;
+  const attr = starPoints.geometry.attributes.color;
+  C.forEach((c, i) => { const [r, g, b] = colorByLane ? laneRgb(c.lane || 0) : authorRgb(c.author); attr.setXYZ(i, r, g, b); });
+  attr.needsUpdate = true; buildLegend();
+}
+function updateCamera() {
+  const x = camTarget.x + camR * Math.sin(camPhi) * Math.cos(camTheta);
+  const y = camTarget.y + camR * Math.cos(camPhi);
+  const z = camTarget.z + camR * Math.sin(camPhi) * Math.sin(camTheta);
+  camera.position.set(x, y, z); camera.lookAt(camTarget);
+}
+let t0 = performance.now();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = (performance.now() - t0) / 1000;
+  const beatPhase = (t % BEAT) / BEAT;
+  const breathAmt = breath ? (1 + 0.05 * Math.sin(beatPhase * Math.PI * 2)) : 1;
+  if (starPoints) starPoints.material.uniforms.uPulse.value = breathAmt;
+  if (rotate && !dragging) camTheta += (2 * Math.PI) / (64 * BEAT) * (1 / 60);
+  if (flythrough && !dragging) {
+    // ease the orbit pivot up the helix and gently back -- the "glide"
+    flyT += (1 / 60) / 46;  // ~46s bottom-to-top
+    const tri = 1 - Math.abs((flyT % 2) - 1);   // 0..1..0 triangle
+    camTargetEase.set(0, (tri - 0.5) * HEIGHT * 0.92, 0);
+  }
+  const pl = document.getElementById('pulse');
+  if (pl) pl.style.opacity = 0.5 + 0.5 * Math.abs(Math.sin(beatPhase * Math.PI));
+  camTarget.lerp(camTargetEase, 0.05);
+  updateCamera();
+  if (linkLines) linkLines.visible = showLinks;
+  pickHover();
+  renderer.render(scene, camera);
+}
+function pickHover() {
+  if (!starPoints) return;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObject(starPoints);
+  const tip = document.getElementById('tip');
+  if (hits.length) {
+    const c = nodeMeta[hits[0].index].c;
+    const when = new Date((c.ts || 0) * 1000).toISOString().slice(0, 10);
+    tip.innerHTML = '<div class="subj">' + escapeHtml(c.subject || '(no message)') + '</div>' +
+      '<div class="meta">' + escapeHtml(c.short || c.sha.slice(0, 9)) + ' &middot; ' + escapeHtml(c.author || '?') + ' &middot; ' + when +
+      ' &middot; <span class="churn"><span class="add">+' + (c.insertions || 0) + '</span> <span class="del">-' + (c.deletions || 0) + '</span> in ' + (c.files || 0) + 'f</span>' +
+      ((c.refs && c.refs.length) ? ' &middot; ' + escapeHtml(c.refs.join(', ')) : '') + '</div>';
+    tip.style.opacity = 1; tip.style.left = (lastMouseX + 14) + 'px'; tip.style.top = (lastMouseY + 14) + 'px';
+    document.body.style.cursor = 'pointer';
+    starPoints._hoverIndex = hits[0].index; starPoints._hoverSha = c.sha;
+  } else { tip.style.opacity = 0; document.body.style.cursor = 'default'; starPoints._hoverIndex = null; starPoints._hoverSha = null; }
+}
+function bindControls() {
+  const canvas = document.getElementById('scene');
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('mousedown', e => { dragging = true; dragMoved = false; panning = (e.button === 2 || e.shiftKey); lastX = e.clientX; lastY = e.clientY; });
+  window.addEventListener('mouseup', () => { dragging = false; panning = false; });
+  window.addEventListener('mousemove', e => {
+    lastMouseX = e.clientX; lastMouseY = e.clientY;
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    if (dragging) {
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
+      if (panning) {
+        const right = new THREE.Vector3(), up = new THREE.Vector3();
+        camera.matrix.extractBasis(right, up, new THREE.Vector3());
+        const k = camR * 0.0016;
+        camTarget.addScaledVector(right, -dx * k); camTarget.addScaledVector(up, dy * k);
+        camTargetEase.copy(camTarget);
+      } else {
+        camTheta -= dx * 0.005;
+        camPhi = Math.max(0.15, Math.min(Math.PI - 0.15, camPhi - dy * 0.005));
+      }
+      lastX = e.clientX; lastY = e.clientY;
+    }
+  });
+  canvas.addEventListener('wheel', e => { e.preventDefault(); camR = Math.max(8, Math.min(3200, camR * (1 + e.deltaY * 0.0012))); }, { passive: false });
+  function starPosAt(idx) { if (idx == null || !starPoints) return null; const a = starPoints.geometry.attributes.position; return new THREE.Vector3(a.getX(idx), a.getY(idx), a.getZ(idx)); }
+  canvas.addEventListener('click', () => { if (dragMoved) return; if (starPoints && starPoints._hoverIndex != null) { const tp = starPosAt(starPoints._hoverIndex); if (tp) { flythrough = false; document.getElementById('cFly').checked = false; camTargetEase.copy(tp); camR = Math.max(30, Math.min(camR, 140)); } } });
+  canvas.addEventListener('dblclick', () => {
+    if (starPoints && starPoints._hoverSha && DOC && DOC.commit_url_template) {
+      window.open(DOC.commit_url_template.replace('{sha}', starPoints._hoverSha), '_blank', 'noopener');
+    }
+  });
+  document.getElementById('cFly').addEventListener('change', e => { flythrough = e.target.checked; });
+  document.getElementById('cSpin').addEventListener('change', e => rotate = e.target.checked);
+  document.getElementById('cBreath').addEventListener('change', e => breath = e.target.checked);
+  document.getElementById('cLinks').addEventListener('change', e => showLinks = e.target.checked);
+  document.getElementById('cColorLane').addEventListener('change', e => { colorByLane = e.target.checked; recolor(); });
+  window.addEventListener('resize', () => { if (!camera) return; camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+  window.addEventListener('keydown', e => { if (e.key === 'r' || e.key === 'R') { camTargetEase.set(0, 0, 0); camR = 620; flyT = 0; } });
+}
+function escapeHtml(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ---- file drop + picker -----------------------------------------------------
+['dragenter', 'dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); document.getElementById('drop').classList.add('on'); }));
+['dragleave', 'drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); if (ev === 'drop' || e.relatedTarget === null) document.getElementById('drop').classList.remove('on'); }));
+window.addEventListener('drop', e => { const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) readFile(f); });
+['fileIn', 'fileIn2'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) readFile(f); }); });
+
+boot();
+</script>
+</body>
+</html>
