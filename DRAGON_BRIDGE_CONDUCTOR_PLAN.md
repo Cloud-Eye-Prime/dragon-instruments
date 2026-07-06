@@ -217,3 +217,29 @@ HONEST GATING: the live aiChat plan needs the user's Anthropic key (BYO, click-f
 external-track acquisition calls the grabber q=/analyze= lane (Phase 1, deploy-gated) and
 degrades honestly to synth-beds-only when it 404s. Phases 2/3/5 (SoundTouch stretch, full
 key-frame re-pitch of grabs, breath-led + Listener modes) remain as specced.
+
+## ADDENDUM 2026-07-06c -- PHASE 1 DEPLOYED + PHASE 2 INGEST LIVE (verified on the artifacts)
+
+PHASE 1 (grabber) DEPLOYED: railway up to dragon-grabber, build SUCCESS (47 wheels incl.
+numba/llvmlite -- the declared risk retired). One real fault found by live probe and fixed:
+yt-dlp 2026.07 requires a JS runtime for YouTube; added deno to the Dockerfile (deno:
+/usr/local/bin/deno on /diag). B4 done: dead nixpacks.toml + Procfile deleted.
+LIVE VERIFY (deployed artifact): music url-grab + analyze=1 -> status verified, bpm 116.51
+with a 130-beat grid, LUFS -17.86 / gain +1.86, 5 sections (densities in [0,1]), an 8-bar
+rhythmic loop seam 0.827, key honestly null (unconfident); spoken-word -> rejected
+(non_musical: speech); /analyze?file= -> manifest alone; legacy /grab shape unchanged
+(id/title/file, no manifest). Analysis ~+15s on a 90s section.
+GATED (Architect): YouTube itself bot-checks Railway's datacenter IP ("Sign in to confirm
+you're not a bot") -- BOTH url= and q= lanes, all videos tried. The code path is proven via
+direct-URL grabs (archive.org). Options are user-supplied cookies (--cookies) or a different
+egress; deliberately NOT worked around here. Non-YouTube http(s) audio grabs work today.
+
+PHASE 2 INGEST LIVE in tempo_mixer.html: grabYouTube() now requests &analyze=1 and
+attachManifest(ch,man) applies it -- srcBPM from the analyzed grid + match ON (tempo-locks
+via the existing pitch-preserved applyRate), arrival gain from LUFS gain_to_target_db,
+sections kept on ch.manifest for the Conductor, status narrates verdict/bpm/camelot. The
+Conductor's acquisition path attaches manifests too and auto-skips validation.status
+rejected (narrated). Verified end-to-end in the browser against the LIVE grabber:
+srcBPM 116.51 / match on / playbackRate 0.858 (= master 100 / 116.51) / fader 0.966.
+STILL OPEN in Phase 2: SoundTouch true time-stretch (vendoring a third-party lib into
+public/vendor -- held for the Architect's nod), key-shift to sessionKey (Phase 3).
