@@ -79,11 +79,24 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
  .fader{width:40px}
  .fcap{width:36px;height:18px}
 }
+.seg-ctl{display:flex;border:1px solid var(--bd2);border-radius:7px;overflow:hidden}
+.seg-ctl button{font-size:11px;padding:5px 12px;background:#0d1622;color:#9fb3c8;border:0;cursor:pointer;font-family:inherit}
+.seg-ctl button.on{background:#13283a;color:var(--cyan)}
+#conductorBar{flex-direction:column;align-items:stretch;gap:8px;display:none}
+body.conductor #conductorBar{display:flex}
+body.conductor .rack{opacity:.5;filter:saturate(.6)}
+body.conductor #aibar{opacity:.55}
+.cvrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#cvIntent{flex:1;min-width:220px}
+#cvLog{max-height:150px;overflow-y:auto;background:#070b11;border:1px solid var(--bd);border-radius:8px;padding:8px;font-size:11px;line-height:1.55;color:#8ea0b6}
+#cvLog .n{color:var(--cyan)}
+#cvLog .warn{color:var(--amber)}
 </style></head>
 <body>
 <div class="console">
   <div class="tbar">
     <span class="title">DRAGON BRIDGE</span>
+    <div class="seg-ctl" id="modeSeg" title="Console = your hands drive; Conductor = full-AI chat drives, touch anything to take over"><button id="modeConsole" class="on">Console</button><button id="modeConductor">Conductor</button></div>
     <button class="tbtn" id="startBtn">Start Audio</button>
     <div class="clock">
       <span class="tdim">bpm</span><span class="bpm" id="bpmReadout">100</span>
@@ -139,6 +152,16 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
     <select class="x" id="sceneSel" style="display:none"></select>
     <button class="tbtn" id="sceneRecallBtn" style="display:none" title="apply the selected scene (undo reverts). Scenes live for this session -- strips exist only while their sources do.">recall</button>
     <span class="tdim">browser-to-Anthropic direct; nothing fires without a click</span>
+  </div>
+  <div class="tbar" id="conductorBar">
+    <div class="cvrow">
+      <span class="title" style="font-size:11px">CONDUCTOR</span>
+      <input class="x" id="cvIntent" placeholder="what do you want to hear? artists, songs, moods -- e.g. moody downtempo, Bonobo and Tycho, slow build">
+      <button class="tbtn" id="cvGo" title="plan a set from your words: session key + bpm, rights-clean synth beds start immediately, tracks fetched if the grabber lane is live, then the AI DJ performs. Costs one call on your key.">conduct</button>
+      <button class="tbtn" id="cvStop">stop set</button>
+      <span class="tdim" id="cvKey">key --</span>
+    </div>
+    <div id="cvLog"></div>
   </div>
   <div class="xfader">
     <span class="xlab l">L group</span>
@@ -507,8 +530,81 @@ function djStart(){
  if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');startClock();}
  setStatus('AI DJ engaged -- writes bars ahead on your key; touch anything to take over');
 }
-function djStop(reason){if(!dj.on)return;dj.on=false;dj.plan={};dj.requesting=false;$('djBtn').classList.remove('on');$('djBtn').textContent='AI DJ';setStatus('AI DJ off'+(reason?' -- '+reason:'')+' (undo rewinds the whole set)');}
+function djStop(reason){
+ // grab=yield: a console touch in Conductor drops to Console, beds keep sounding,
+ // only the AI performance pauses (sound continuous, the human inherits the mix)
+ if(conductorMode&&reason&&reason.indexOf('manual override')>=0){setConductorMode(false);if($('cvLog'))cvLog('you took the console -- beds keep playing, AI performance paused','n');}
+ if(!dj.on)return;dj.on=false;dj.plan={};dj.requesting=false;$('djBtn').classList.remove('on');$('djBtn').textContent='AI DJ';setStatus('AI DJ off'+(reason?' -- '+reason:'')+' (undo rewinds the whole set)');}
 $('djBtn').onclick=function(){dj.on?djStop():djStart();};
+
+// ===== CONDUCTOR MODE (Phase 4): chat intent -> plan -> synth beds + AI DJ =====
+// Full-AI posture. Reuses aiChat/parseAiJson/aiBusy, the composer synth voices
+// (ensureComposer/composerNote), and the AI DJ engine. Rights-clean synth beds
+// start immediately so there is never dead air; external track acquisition uses
+// the grabber keyword lane when live and degrades honestly when it is not
+// (the grabber q=/analyze= lane is Phase 1 of the plan, deploy-gated).
+var conductorMode=false;
+var conductor={on:false,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
+var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],pentatonic:[0,2,4,7,9]};
+var NOTEBASE={c:0,'c#':1,db:1,d:2,'d#':3,eb:3,e:4,f:5,'f#':6,gb:6,g:7,'g#':8,ab:8,a:9,'a#':10,bb:10,b:11};
+var BEDTIMBRE={bass:'sawtooth',pad:'triangle',drone:'sine',lead:'square',arp:'square'};
+function cvLog(msg,cls){var l=$('cvLog');if(!l)return;var d=document.createElement('div');if(cls)d.className=cls;d.textContent=msg;l.appendChild(d);l.scrollTop=l.scrollHeight;}
+function parseKey(s){s=String(s||'A:minor').toLowerCase().replace(/_/g,' ');var m=s.match(/([a-g][#b]?)\s*[:\s-]*\s*([a-z]+)?/);var root=57,scale=SCALES.minor;if(m){if(m[1]in NOTEBASE)root=57+((NOTEBASE[m[1]]-9+12)%12);var sc=m[2]||'minor';for(var k in SCALES){if(sc.indexOf(k)===0){scale=SCALES[k];break;}}}return {root:root,scale:scale};}
+function setConductorMode(on){conductorMode=on;document.body.classList.toggle('conductor',on);$('modeConsole').classList.toggle('on',!on);$('modeConductor').classList.toggle('on',on);setStatus(on?'Conductor mode -- type what you want to hear':'Console mode -- your hands drive');}
+function conductorBeat(){
+ if(!conductor.on)return;
+ var s=conductor.step++,bar=Math.floor(s/8),bt=s%8,sc=conductor.scale,root=conductor.root;
+ conductor.beds.forEach(function(b){
+  var ch=channels.get(b.id);if(!ch)return;var play=null,dur=0.4,vel=85;
+  if(b.role==='bass'){if(bt===0||bt===4){play=root-12+sc[bar%sc.length];dur=0.9;vel=100;}}
+  else if(b.role==='pad'||b.role==='drone'){if(bt===0){play=root+sc[(bar*2)%sc.length];dur=2.3;vel=55;}}
+  else if(b.role==='lead'||b.role==='arp'){play=root+12+sc[s%sc.length];dur=0.26;vel=78;}
+  else{if(bt%2===0){play=root+sc[s%sc.length];dur=0.5;vel=72;}}
+  if(play!=null)composerNote(ch,play,vel,dur);
+ });
+}
+function startConductorBeds(){if(conductor.timer)clearInterval(conductor.timer);conductor.step=0;conductor.timer=setInterval(conductorBeat,Math.max(60,60000/bpm()/2));}
+function stopConductorBeds(){if(conductor.timer){clearInterval(conductor.timer);conductor.timer=null;}}
+var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (you MAY name real artists/songs/albums). synth_beds = 1-4 rights-clean internal voices; role one of bass,pad,drone,lead,arp; key = a short unique id. arc = 2-5 phases describing the set shape. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener.';
+async function conductorPlan(){
+ if(!started)startAudio();
+ var intent=$('cvIntent').value.trim();if(!intent){setStatus('tell the Conductor what you want to hear');return;}
+ if(aiBusy){setStatus('AI is already working on something');return;}
+ $('cvGo').classList.add('on');cvLog('> '+intent);setStatus('Conductor planning...');
+ var plan;
+ try{
+  var ctxNote=channels.size?(' Currently playing: '+order.map(function(id){var c=channels.get(id);return c?c.name:'';}).filter(Boolean).join(', ')+'. Continue from here.'):'';
+  var text=await aiChat(CONDUCTOR_SYS,'Intent: '+intent+'.'+ctxNote+' Return JSON only.',900);
+  plan=parseAiJson(text);
+ }catch(e){$('cvGo').classList.remove('on');if(e.message!=='no-key')cvLog('planning failed: '+String(e.message).slice(0,80),'warn');return;}
+ conductor.on=true;
+ var k=parseKey(plan.session_key);conductor.root=k.root;conductor.scale=k.scale;$('cvKey').textContent='key '+(plan.session_key||'A:minor');
+ var sb=parseInt(plan.session_bpm,10);if(sb>=60&&sb<=180){$('bpm').value=sb;$('bpmReadout').textContent=sb;refreshRates();if(clockOn)startClock();}
+ conductor.arc=Array.isArray(plan.arc)?plan.arc:[];
+ if(plan.note)cvLog(plan.note,'n');
+ conductor.beds=[];(plan.synth_beds||[]).slice(0,4).forEach(function(b){
+  var id='cbed-'+String(b.key||b.role||Math.random().toString(36).slice(2,5)).replace(/[^a-z0-9]/gi,'').slice(0,8);
+  var ch=ensureComposer(id,('~'+(b.role||'bed')).slice(0,12));ch.timbre=BEDTIMBRE[b.role]||'triangle';
+  conductor.beds.push({id:id,role:(b.role||'pad')});
+ });
+ if(conductor.beds.length){startConductorBeds();cvLog('beds live: '+conductor.beds.map(function(b){return b.role;}).join(', '),'n');}
+ var base=$('grabBase').value.trim().replace(/\/$/,'');
+ (plan.queries||[]).slice(0,4).forEach(function(q){
+  cvLog('fetching: '+q+' ...');
+  fetch(base+'/grab?q='+encodeURIComponent(q)+'&analyze=1').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(d){
+   if(d&&d.file){addFileChannel(base+d.file,(d.title||q));cvLog('loaded: '+(d.title||q),'n');}else throw new Error('no file');
+  }).catch(function(e){cvLog('acquire unavailable for "'+q+'" ('+String(e.message).slice(0,42)+') -- staying on synth beds','warn');});
+ });
+ dj.intents=conductor.arc.map(function(a){return (a.phase||'')+': '+(a.focus||'');}).filter(function(x){return x.length>2;}).slice(0,6);
+ setTimeout(function(){if(conductor.on&&aiKey()&&!dj.on)djStart();},600);
+ $('cvGo').classList.remove('on');setStatus('Conductor performing -- touch the console to take over');
+}
+function conductorStop(){conductor.on=false;stopConductorBeds();djStop('conductor stopped');cvLog('set ended -- beds silenced','warn');setStatus('Conductor stopped');}
+$('modeConsole').onclick=function(){setConductorMode(false);};
+$('modeConductor').onclick=function(){if(!started)startAudio();setConductorMode(true);};
+$('cvGo').onclick=conductorPlan;
+$('cvStop').onclick=conductorStop;
+$('cvIntent').addEventListener('keydown',function(e){if(e.key==='Enter')conductorPlan();});
 
 $('startBtn').onclick=startAudio;
 $('capBtn').onclick=captureSource;

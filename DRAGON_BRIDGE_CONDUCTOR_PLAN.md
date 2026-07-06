@@ -198,3 +198,22 @@ REMAINING (unchanged, Architect-gated -- deploys + keys, NOT done here):
 - Deploy of THIS addendum's files: `railway up` from production\dragon-instruments to
   heartbeat-pages, then probe /soundlab.html + /heartbeat.html live. (The instruments are
   verified on the local server; they are NOT yet on the live domain.)
+
+## ADDENDUM 2026-07-06b -- PHASE 4 CONDUCTOR CHAT MODE (core, in-repo, verified)
+
+Built additively in tempo_mixer.html (Console preserved, no engine teardown):
+- Header segmented control Console | Conductor (body.conductor recedes the rack + AI bar).
+- Conductor surface: intent input + scrolling narration log (#cvLog).
+- conductorPlan(): one aiChat call, CONDUCTOR_SYS -> JSON {queries, synth_beds, arc,
+  session_key, session_bpm, note}. Sets session key+bpm; spawns synth_beds as internal
+  composer voices (ensureComposer/composerNote) driven by a bar-grid bed engine in the
+  session key (rights-clean, immediate, no dead air); reuses the AI DJ engine seeded by
+  the arc to perform.
+- Grab=yield: a console touch (the existing 'manual override' djStop hook) drops to Console
+  with beds STILL sounding and the AI performance paused -- sound continuous, human inherits.
+- Verified live (serve public): mode toggle, panel, key parse (F#:dorian -> root 66), 3 beds
+  spawned + ticking, yield keeps beds alive, Console unchanged, zero console errors.
+HONEST GATING: the live aiChat plan needs the user's Anthropic key (BYO, click-fired); the
+external-track acquisition calls the grabber q=/analyze= lane (Phase 1, deploy-gated) and
+degrades honestly to synth-beds-only when it 404s. Phases 2/3/5 (SoundTouch stretch, full
+key-frame re-pitch of grabs, breath-led + Listener modes) remain as specced.
