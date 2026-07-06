@@ -118,7 +118,7 @@ body.conductor #aibar{opacity:.55}
     <input class="x" id="urlIn" placeholder="media url" style="width:140px"><button class="tbtn" id="urlBtn">load url</button>
     <button class="tbtn" id="ytBtn">add from YouTube...</button>
     <span id="ytRow" style="display:none;align-items:center;gap:6px;flex-wrap:wrap">
-      <input class="x" id="grabUrl" placeholder="youtube url" style="width:150px">
+      <input class="x" id="grabUrl" placeholder="youtube url OR search: artist song" style="width:190px">
       <input class="x" id="grabStart" placeholder="start (opt)" style="width:66px">
       <input class="x" id="grabEnd" placeholder="end (opt)" style="width:66px">
       <button class="tbtn" id="grabBtn" title="blank start/end pulls the first 90s; enter start/end like 0:42 / 1:12 for an exact window, max 30 min. Never downloads the whole file.">grab section</button>
@@ -409,7 +409,7 @@ var stretchDeb=null;
 function restretchAll(){if(!started)return;clearTimeout(stretchDeb);stretchDeb=setTimeout(function(){channels.forEach(function(ch){if(ch.stretched||stretchEligible(ch))syncStretch(ch);});},600);}
 $('fileInput').onchange=function(e){var f=e.target.files[0];if(!f)return;addFileChannel(URL.createObjectURL(f),f.name);e.target.value='';};
 function loadUrl(){var u=$('urlIn').value.trim();if(u)addFileChannel(u,u.split('/').pop()||'url');}
-async function grabYouTube(){var u=$('grabUrl').value.trim(),base=$('grabBase').value.trim().replace(/\/$/,''),st=$('grabStart').value.trim(),en=$('grabEnd').value.trim();if(!u){setStatus('paste a youtube url');return;}if(!base){setStatus('set grabber base url');return;}var q=base+'/grab?url='+encodeURIComponent(u);if(st)q+='&start='+encodeURIComponent(st);if(en)q+='&end='+encodeURIComponent(en);q+='&analyze=1';setStatus('grabbing '+((st||en)?((st||'0:00')+' to '+(en||'+90s')):'first 90s')+' (yt-dlp + analysis)...');try{var r=await fetch(q);if(!r.ok)throw new Error('HTTP '+r.status);var d=await r.json();var ch=addFileChannel(base+d.file,(d.title||'YouTube'));if(d.manifest)attachManifest(ch,d.manifest);}catch(e){setStatus('grab failed: '+(e.message||e));}}
+async function grabYouTube(){var u=$('grabUrl').value.trim(),base=$('grabBase').value.trim().replace(/\/$/,''),st=$('grabStart').value.trim(),en=$('grabEnd').value.trim();if(!u){setStatus('paste a youtube url');return;}if(!base){setStatus('set grabber base url');return;}var isUrl=/^https?:\/\//i.test(u);var q=base+'/grab?'+(isUrl?'url=':'q=')+encodeURIComponent(u);if(st)q+='&start='+encodeURIComponent(st);if(en)q+='&end='+encodeURIComponent(en);q+='&analyze=1';setStatus((isUrl?'grabbing ':'searching YouTube for "'+u.slice(0,40)+'" -- grabbing ')+((st||en)?((st||'0:00')+' to '+(en||'+90s')):'first 90s')+' (yt-dlp + analysis)...');try{var r=await fetch(q);if(!r.ok)throw new Error('HTTP '+r.status);var d=await r.json();var ch=addFileChannel(base+d.file,(d.title||'YouTube'));if(d.manifest)attachManifest(ch,d.manifest);}catch(e){setStatus('grab failed: '+(e.message||e));}}
 
 function flatten(ch){var n=0;ch.forEach(function(c){n+=c.length;});var o=new Float32Array(n),i=0;ch.forEach(function(c){o.set(c,i);i+=c.length;});return o;}
 function toggleLoop(){if(!started)startAudio();if(capLoop){finishLoop();return;}loopL=[];loopR=[];var bars=Math.max(1,parseInt($('loopBars').value)||4);loopTarget=Math.round(bars*4*(60/bpm())*ctx.sampleRate);capLoop=true;$('loopBtn').classList.add('on');$('loopBtn').textContent='rec '+bars+' bars';recUI();setStatus('loop recording '+bars+' bars');}
