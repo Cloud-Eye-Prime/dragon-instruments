@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>The Sound Lab</title>
+<!--
+  THE SOUND LAB -- self-contained instrument (no build, no framework, no external host).
+  The Aleia room "soundlab" from LXR-5 backend/lxr/lxr_metal.py, given a body.
+  8x8 clip launcher: 8 Wu Xing-mapped voice rows x 8 eighth-note columns = 1 bar at 96 BPM.
+  THE THROW: tap a row's throw pad -> the voice lands quantized to the next 16th (inevitable).
+  Pure Web Audio synth voices (Tone.js dropped -- sovereign + offline).
+
+  CONDUCTOR INTEGRATION (BroadcastChannel 'dragon-bus', the tempo_mixer's clock bus):
+    - listens for {type:'clock',bpm,beat} -> locks tempo + realigns phase to the conductor
+    - emits {type:'hello'|'note'|'bye'} -> the mixer voices each Sound Lab hit as a live
+      channel (handleBus/composerNote), so the Lab plays INSIDE the conductor's mix.
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --accent: #00e5ff;
+    --bg: #05050a;
+    --ink: #dfe7ee;
+    --muted: #7a8390;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(120% 90% at 50% 0%, #0a0f1a 0%, var(--bg) 60%, #030308 100%);
+    color: var(--ink); font: 15px/1.5 var(--font-ui);
+    display: flex; justify-content: center; align-items: flex-start; min-height: 100%;
+  }
+  .sl-root { width: 100%; max-width: 780px; padding: 26px 22px 30px; position: relative; }
+  .sl-back { position:absolute; top:14px; left:14px; color:var(--muted); text-decoration:none; font-size:20px; opacity:.6; }
+  .sl-back:hover { opacity:1; }
+  .sl-head { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:10px; }
+  .sl-title { font-size: 26px; font-weight: 600; letter-spacing: 0.5px; margin: 0; }
+  .sl-sub { color: var(--muted); font-size: 14px; font-style: italic; margin: 2px 0 0; }
+  .sl-mono { font-family: var(--font-mono); }
+  .sl-synctag { text-align:right; font-size: 11px; letter-spacing:1px; }
+  .sl-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#333; margin-right:5px; vertical-align:middle; }
+  .sl-dot.live { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  .sl-grid { margin-top: 18px; display: grid; grid-template-columns: 92px repeat(8, 1fr); gap: 6px; }
+  .sl-rowlabel {
+    display:flex; flex-direction:column; justify-content:center; align-items:flex-start;
+    padding: 4px 8px; border-radius: 8px; cursor: pointer; user-select:none;
+    background: rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06);
+    transition: background .15s, border-color .15s;
+  }
+  .sl-rowlabel:hover { background: rgba(255,255,255,0.07); }
+  .sl-rowlabel:active { transform: scale(0.97); }
+  .sl-rowlabel .nm { font-size: 13px; font-weight: 600; }
+  .sl-rowlabel .el { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .sl-cell {
+    aspect-ratio: 1 / 1; border-radius: 7px; cursor: pointer;
+    background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.07);
+    transition: background .1s, box-shadow .1s, transform .05s;
+  }
+  .sl-cell:hover { background: rgba(255,255,255,0.09); }
+  .sl-cell.on { background: var(--rowcol); box-shadow: 0 0 10px -1px var(--rowcol); }
+  .sl-cell.beat { outline: 2px solid rgba(255,255,255,0.14); outline-offset: -2px; }
+  .sl-col-playing { box-shadow: inset 0 0 0 2px var(--accent) !important; }
+  .sl-flash { animation: slflash .18s ease-out; }
+  @keyframes slflash { from { transform: scale(1.14); filter: brightness(1.7); } to { transform: scale(1); filter: none; } }
+
+  .sl-ctl { display:flex; align-items:center; gap: 14px; margin-top: 20px; flex-wrap: wrap; }
+  .sl-btn {
+    font: 14px var(--font-ui); letter-spacing: 0.5px; background: transparent; color: var(--ink);
+    border: 1px solid rgba(0,229,255,0.4); padding: 8px 18px; border-radius: 24px; cursor: pointer;
+    transition: all .2s;
+  }
+  .sl-btn:hover { border-color: var(--accent); background: rgba(0,229,255,0.08); }
+  .sl-btn.primary { border-color: var(--accent); }
+  .sl-btn.primary.playing { background: var(--accent); color: #04121a; }
+  .sl-slider { -webkit-appearance:none; appearance:none; height:3px; width:120px; border-radius:3px; background: rgba(223,231,238,0.25); outline:none; }
+  .sl-slider::-webkit-slider-thumb { -webkit-appearance:none; width:13px; height:13px; border-radius:50%; background: var(--accent); cursor:pointer; }
+  .sl-field { display:flex; align-items:center; gap:8px; }
+  .sl-field span { font-size: 11px; color: var(--muted); }
+  .sl-bpm { width: 52px; background: rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color: var(--ink); border-radius:6px; padding:5px 6px; font: 13px var(--font-mono); text-align:center; }
+  .sl-foot { color: var(--muted); font-size: 12.5px; margin-top: 20px; line-height: 1.55; }
+  .sl-foot b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="sl-root">
+    <a class="sl-back" href="./index.html" title="back to instruments">&#x2039;</a>
+
+    <div class="sl-head">
+      <div>
+        <h1 class="sl-title">The Sound Lab</h1>
+        <p class="sl-sub">Aleia's clip launcher -- you throw, the grid makes it inevitable. 96 BPM.</p>
+      </div>
+      <div class="sl-mono sl-synctag">
+        <div><span class="sl-dot" id="syncDot"></span><span id="syncText">standalone</span></div>
+        <div style="color:var(--muted);font-size:10px;margin-top:3px" id="barText">bar . beat</div>
+      </div>
+    </div>
+
+    <div class="sl-grid" id="grid"></div>
+
+    <div class="sl-ctl">
+      <button class="sl-btn primary" id="playBtn">play</button>
+      <button class="sl-btn" id="clearBtn">clear</button>
+      <div class="sl-field"><span>BPM</span><input class="sl-bpm" id="bpm" type="text" inputmode="numeric" value="96"></div>
+      <label class="sl-field" style="cursor:pointer"><input type="checkbox" id="syncChk" checked><span>follow conductor</span></label>
+      <div class="sl-field"><span>VOL</span><input class="sl-slider" id="vol" type="range" min="0" max="1" step="0.01" value="0.7"></div>
+    </div>
+
+    <div class="sl-foot">
+      Tap cells to build a pattern; tap a <b>row name</b> to throw that voice live (it lands on the next 16th).
+      Rows carry the five elements -- Metal cuts, Water grounds, Fire ignites, Wood grows, Earth holds.
+      When the <b>tempo mixer</b> (the conductor) is open in another tab, this Lab locks to its clock and
+      feeds every hit into the conductor's mix. That is Aleia's discipline: the human throws, the room lands it.
+    </div>
+  </div>
+
+<script>
+"use strict";
+(function () {
+  // --- voices: 8 rows, Wu Xing mapped (spec order Kick/Bass/Snare/Hat/Crash/Tom/Pad/Lead)
+  // element glyphs: \u91d1 metal, \u6c34 water, \u706b fire, \u6728 wood, \u571f earth
+  var ROWS = [
+    { key:"kick",  name:"Kick",  el:"earth", glyph:"\u571f", color:"#d4a843", note:36 },
+    { key:"bass",  name:"Bass",  el:"water", glyph:"\u6c34", color:"#4a8fd4", note:40 },
+    { key:"snare", name:"Snare", el:"metal", glyph:"\u91d1", color:"#cdd6e2", note:38 },
+    { key:"hat",   name:"Hat",   el:"metal", glyph:"\u91d1", color:"#aeb8c6", note:42 },
+    { key:"crash", name:"Crash", el:"fire",  glyph:"\u706b", color:"#e8743f", note:49 },
+    { key:"tom",   name:"Tom",   el:"wood",  glyph:"\u6728", color:"#6bbf73", note:45 },
+    { key:"pad",   name:"Pad",   el:"earth", glyph:"\u571f", color:"#c9a84c", note:60 },
+    { key:"lead",  name:"Lead",  el:"fire",  glyph:"\u706b", color:"#ff9a5c", note:72 }
+  ];
+  var COLS = 8;                 // 8 eighth-notes = one 4/4 bar
+  var SIX_PER_COL = 2;          // grid column spacing in 16ths (eighth = 2 sixteenths)
+  var STEPS16 = COLS * SIX_PER_COL; // 16 sixteenths per loop (one bar)
+
+  // pattern[row][col] = bool
+  var pattern = ROWS.map(function(){ var a=[]; for (var c=0;c<COLS;c++) a.push(false); return a; });
+
+  // --- audio -----------------------------------------------------------------
+  var ctx = null, master = null, noiseBuf = null;
+  var vol = 0.7;
+
+  function makeNoise(){
+    var n = ctx.sampleRate * 1.0;
+    var buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i=0;i<n;i++) d[i] = Math.random()*2 - 1;
+    return buf;
+  }
+  function ensureAudio(){
+    if (master) { if (ctx.state === "suspended") ctx.resume(); return; }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC();
+    master = ctx.createGain(); master.gain.value = vol; master.connect(ctx.destination);
+    noiseBuf = makeNoise();
+  }
+  function mtof(m){ return 440 * Math.pow(2, (m - 69) / 12); }
+  function env(g, t, a, peak, dcy){
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + a + dcy);
+  }
+  function noiseSrc(){ var s = ctx.createBufferSource(); s.buffer = noiseBuf; return s; }
+
+  function trigger(rowKey, t){
+    if (!master) return;
+    t = t || ctx.currentTime;
+    var g = ctx.createGain(); g.connect(master);
+    if (rowKey === "kick"){
+      var o = ctx.createOscillator(); o.type="sine";
+      o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(48, t+0.11);
+      o.connect(g); env(g, t, 0.005, 0.9, 0.16); o.start(t); o.stop(t+0.22);
+    } else if (rowKey === "bass"){
+      var ob = ctx.createOscillator(); ob.type="triangle"; ob.frequency.setValueAtTime(mtof(40), t);
+      var lp = ctx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=420;
+      ob.connect(lp); lp.connect(g); env(g, t, 0.01, 0.7, 0.22); ob.start(t); ob.stop(t+0.26);
+    } else if (rowKey === "snare"){
+      var ns = noiseSrc(); var hp = ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1400;
+      ns.connect(hp); hp.connect(g);
+      var ot = ctx.createOscillator(); ot.type="triangle"; ot.frequency.value=180; ot.connect(g);
+      env(g, t, 0.004, 0.6, 0.14); ns.start(t); ns.stop(t+0.16); ot.start(t); ot.stop(t+0.09);
+    } else if (rowKey === "hat"){
+      var nh = noiseSrc(); var hph = ctx.createBiquadFilter(); hph.type="highpass"; hph.frequency.value=7200;
+      nh.connect(hph); hph.connect(g); env(g, t, 0.002, 0.35, 0.035); nh.start(t); nh.stop(t+0.05);
+    } else if (rowKey === "crash"){
+      var nc = noiseSrc(); var hpc = ctx.createBiquadFilter(); hpc.type="highpass"; hpc.frequency.value=5000;
+      nc.connect(hpc); hpc.connect(g); env(g, t, 0.003, 0.3, 0.6); nc.start(t); nc.stop(t+0.7);
+    } else if (rowKey === "tom"){
+      var om = ctx.createOscillator(); om.type="sine";
+      om.frequency.setValueAtTime(220, t); om.frequency.exponentialRampToValueAtTime(104, t+0.2);
+      om.connect(g); env(g, t, 0.005, 0.6, 0.24); om.start(t); om.stop(t+0.3);
+    } else if (rowKey === "pad"){
+      var p1 = ctx.createOscillator(), p2 = ctx.createOscillator();
+      p1.type="sawtooth"; p2.type="sawtooth";
+      p1.frequency.value=mtof(60); p2.frequency.value=mtof(60)*1.005;
+      var lpp = ctx.createBiquadFilter(); lpp.type="lowpass"; lpp.frequency.value=900;
+      p1.connect(lpp); p2.connect(lpp); lpp.connect(g);
+      env(g, t, 0.06, 0.28, 0.55); p1.start(t); p2.start(t); p1.stop(t+0.7); p2.stop(t+0.7);
+    } else if (rowKey === "lead"){
+      var ol = ctx.createOscillator(); ol.type="square"; ol.frequency.value=mtof(72);
+      var lpl = ctx.createBiquadFilter(); lpl.type="lowpass"; lpl.frequency.value=2600;
+      ol.connect(lpl); lpl.connect(g); env(g, t, 0.004, 0.34, 0.18); ol.start(t); ol.stop(t+0.22);
+    }
+  }
+
+  // --- transport: Web Audio lookahead scheduler ------------------------------
+  var playing = false, bpm = 96;
+  var cur16 = 0;               // 0..STEPS16-1
+  var nextTime = 0;            // when the next 16th fires
+  var timer = null;
+  var LOOKAHEAD = 0.1, TICK = 25;
+  var pendingAlign = -1;       // set to a cur16 target on the next tick (conductor realign)
+
+  function sixDur(){ return (60 / bpm) / 4; }
+
+  function scheduleHit(rowIdx, when){
+    var r = ROWS[rowIdx];
+    trigger(r.key, when);
+    flashCell(rowIdx, Math.floor(cur16 / SIX_PER_COL));
+    busNote(r);               // feed the conductor's mix
+  }
+
+  function scheduler(){
+    while (nextTime < ctx.currentTime + LOOKAHEAD){
+      if (pendingAlign >= 0){ cur16 = pendingAlign; pendingAlign = -1; }
+      var col = cur16 / SIX_PER_COL;
+      if (cur16 % SIX_PER_COL === 0){
+        var c = col | 0;
+        for (var r=0;r<ROWS.length;r++){ if (pattern[r][c]) scheduleHit(r, nextTime); }
+        markPlayhead(c, nextTime - ctx.currentTime);
+      }
+      nextTime += sixDur();
+      cur16 = (cur16 + 1) % STEPS16;
+    }
+    timer = setTimeout(scheduler, TICK);
+  }
+
+  function start(){
+    ensureAudio();
+    if (playing) return;
+    playing = true; cur16 = 0; nextTime = ctx.currentTime + 0.06;
+    busHello();
+    scheduler();
+    playBtn.textContent = "stop"; playBtn.classList.add("playing");
+  }
+  function stop(){
+    playing = false; if (timer){ clearTimeout(timer); timer = null; }
+    busBye();
+    playBtn.textContent = "play"; playBtn.classList.remove("playing");
+    clearPlayhead();
+  }
+
+  // --- the throw: live one-shot quantized to the next 16th -------------------
+  function throwVoice(rowIdx){
+    ensureAudio();
+    var when;
+    if (playing){ when = nextTime; }     // next scheduled 16th boundary
+    else { when = ctx.currentTime + 0.005; }
+    trigger(ROWS[rowIdx].key, when);
+    busNote(ROWS[rowIdx]);
+    flashRow(rowIdx);
+  }
+
+  // --- dragon-bus (conductor clock + note feed) ------------------------------
+  var bc = null, myId = "soundlab-" + Math.floor(performance.now()).toString(36);
+  var conductor = false, lastBusBeat = 0;
+  try { bc = new BroadcastChannel("dragon-bus"); } catch (e) { bc = null; }
+  function follow(){ return document.getElementById("syncChk").checked; }
+  if (bc){
+    bc.onmessage = function(e){
+      var m = e.data; if (!m || m.type !== "clock") return;
+      if (!follow()) { setSync(false); return; }
+      conductor = true; lastBusBeat = performance.now();
+      setSync(true);
+      if (m.bpm){ bpm = Math.round(m.bpm); document.getElementById("bpm").value = bpm; }
+      // realign phase to the conductor downbeat (beat 1 -> column 0)
+      if (m.beat === 1){ pendingAlign = 0; }
+      document.getElementById("barText").textContent = "conductor . beat " + m.beat;
+    };
+  }
+  function busHello(){ if (bc) bc.postMessage({ type:"hello", id:myId, name:"Sound Lab" }); }
+  function busBye(){ if (bc) bc.postMessage({ type:"bye", id:myId }); }
+  function busNote(r){ if (bc) bc.postMessage({ type:"note", id:myId, name:"Sound Lab", note:r.note, vel:100, dur:0.35 }); }
+  function setSync(on){
+    var dot = document.getElementById("syncDot"), txt = document.getElementById("syncText");
+    if (on){ dot.classList.add("live"); txt.textContent = "locked to conductor"; }
+    else { dot.classList.remove("live"); txt.textContent = "standalone"; }
+  }
+  // if the conductor stops broadcasting, drop back to standalone
+  setInterval(function(){ if (conductor && performance.now() - lastBusBeat > 1500){ conductor = false; setSync(false); document.getElementById("barText").textContent = "bar . beat"; } }, 700);
+
+  // --- build the grid --------------------------------------------------------
+  var grid = document.getElementById("grid");
+  var cellEls = ROWS.map(function(){ return new Array(COLS); });
+  ROWS.forEach(function(r, ri){
+    var lbl = document.createElement("div");
+    lbl.className = "sl-rowlabel";
+    lbl.style.borderLeft = "3px solid " + r.color;
+    lbl.innerHTML = '<span class="nm" style="color:'+r.color+'">'+r.glyph+' '+r.name+'</span>' +
+                    '<span class="el">'+r.el+'</span>';
+    lbl.title = "throw " + r.name + " (lands on the next 16th)";
+    lbl.addEventListener("click", function(){ throwVoice(ri); });
+    grid.appendChild(lbl);
+    for (var c=0;c<COLS;c++){
+      var cell = document.createElement("div");
+      cell.className = "sl-cell" + (c % SIX_PER_COL === 0 && c % 2 === 0 ? "" : "");
+      if (c % 2 === 0) cell.classList.add("beat");
+      cell.style.setProperty("--rowcol", r.color);
+      (function(ri, c, cell){
+        cell.addEventListener("click", function(){
+          ensureAudio();
+          pattern[ri][c] = !pattern[ri][c];
+          cell.classList.toggle("on", pattern[ri][c]);
+          if (pattern[ri][c] && !playing) trigger(ROWS[ri].key);  // audition on tap
+        });
+      })(ri, c, cell);
+      grid.appendChild(cell);
+      cellEls[ri][c] = cell;
+    }
+  });
+
+  function markPlayhead(col, delaySec){
+    setTimeout(function(){
+      for (var r=0;r<ROWS.length;r++){
+        for (var c=0;c<COLS;c++) cellEls[r][c].classList.toggle("sl-col-playing", c === col && playing);
+      }
+    }, Math.max(0, delaySec*1000));
+  }
+  function clearPlayhead(){
+    for (var r=0;r<ROWS.length;r++) for (var c=0;c<COLS;c++) cellEls[r][c].classList.remove("sl-col-playing");
+  }
+  function flashCell(rowIdx, col){
+    var el = cellEls[rowIdx][col]; if (!el) return;
+    el.classList.remove("sl-flash"); void el.offsetWidth; el.classList.add("sl-flash");
+  }
+  function flashRow(rowIdx){
+    var lbl = grid.children[rowIdx * (COLS + 1)];
+    if (lbl){ lbl.classList.remove("sl-flash"); void lbl.offsetWidth; lbl.classList.add("sl-flash"); }
+  }
+
+  // --- controls --------------------------------------------------------------
+  var playBtn = document.getElementById("playBtn");
+  playBtn.addEventListener("click", function(){ playing ? stop() : start(); });
+  document.getElementById("clearBtn").addEventListener("click", function(){
+    for (var r=0;r<ROWS.length;r++) for (var c=0;c<COLS;c++){ pattern[r][c] = false; cellEls[r][c].classList.remove("on"); }
+  });
+  document.getElementById("bpm").addEventListener("change", function(e){
+    var v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 40 && v <= 220) bpm = v; else e.target.value = bpm;
+  });
+  document.getElementById("vol").addEventListener("input", function(e){
+    vol = parseFloat(e.target.value); if (master){ master.gain.setTargetAtTime(vol, ctx.currentTime, 0.02); }
+  });
+
+  window.addEventListener("beforeunload", function(){ busBye(); });
+})();
+</script>
+</body>
+</html>

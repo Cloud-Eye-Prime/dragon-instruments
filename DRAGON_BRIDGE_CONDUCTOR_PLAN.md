@@ -155,3 +155,46 @@ Claude Code, working_directory C:\Users\grego\Desktop\CloudEye\deploy\grabber, m
 Then Greg deploys the grabber and dispatches the mixer phases.
 
 -- End of plan. The grabber becomes an ear; the mixer gains a second posture; the same engine serves a DJ set, a yoga class, and a live duet. Wu ji nei gong.
+
+---
+
+## ADDENDUM 2026-07-06 -- INSTRUMENT INTEGRATION LAYER (Cloud-Eye, in-repo, verified live)
+
+Context: the two LXR-5 "music rooms" (backend/lxr/lxr_metal.py) were room specs only --
+personas + tool_manifest + ui_skin, with NO instrument bodies. The DJ Room already has its
+body here (tempo_mixer = dual decks + AI-DJ + Conductor mode). The Sound Lab had no body.
+This addendum gives the Sound Lab a body and wires the standalone instruments into the
+conductor's clock, WITHOUT touching the mixer engine (additive, backward-compatible).
+
+DONE + verified in the browser preview (serve public, no deploy):
+1. public/soundlab.html -- the Aleia "soundlab" room, self-contained (pure Web Audio, no
+   Tone.js, no external host, zero non-ASCII bytes, node --check clean). 8x8 clip launcher:
+   8 Wu-Xing-mapped voice rows (Kick/Bass/Snare/Hat/Crash/Tom/Pad/Lead) x 8 eighth-note
+   columns = 1 bar at 96 BPM. Lookahead Web-Audio scheduler; live "throw" (tap a row name)
+   lands quantized to the next 16th, per the room spec.
+2. dragon-bus integration (the same BroadcastChannel('dragon-bus') the mixer already uses):
+   - Sound Lab LISTENS for {type:'clock',bpm,beat} -> adopts the conductor bpm and realigns
+     its phase to the downbeat (beat 1 -> column 0). Falls back to standalone after 1.5s of
+     silence. This is the ghatika_sync contract, honored over the existing bus.
+   - Sound Lab EMITS {type:'hello'|'note'|'bye'}. The mixer's handleBus() already maps
+     note -> ensureComposer + composerNote, so every Lab hit is voiced as a live channel
+     INSIDE the conductor's mix. Verified: posting a clock locked the Lab to 120 bpm and the
+     Lab emitted note:Sound Lab back on the bus.
+   - heartbeat.html: added a light, additive bus listener -- the five-element drone's core
+     flashes on each conductor beat (drone stays free-running otherwise). Verified core
+     r 47 -> 54 on a clock tick.
+3. public/index.html -- unified launcher reordered with the Tempo Mixer named "(the
+   conductor)" first, then Sound Lab, Heartbeat, Ghatika, V0ID_SCALE, Git Cosmos.
+
+The result: opening the Tempo Mixer (Console or Conductor mode) and the Sound Lab in two
+tabs gives one shared clock and one shared mix -- the conductor drives tempo, the Lab feeds
+voices, the Heartbeat breathes along. The "unified ui-chat-conductor" now has clocked
+instrument satellites.
+
+REMAINING (unchanged, Architect-gated -- deploys + keys, NOT done here):
+- Phases 1-5 of this plan (grabber librosa manifest, SoundTouch time-stretch, the Conductor
+  full-AI chat mode, breath-led + Listener modes) still stand as specced. They edit the
+  grabber + tempo_mixer.html and require `railway up` + live probes; not auto-run.
+- Deploy of THIS addendum's files: `railway up` from production\dragon-instruments to
+  heartbeat-pages, then probe /soundlab.html + /heartbeat.html live. (The instruments are
+  verified on the local server; they are NOT yet on the live domain.)

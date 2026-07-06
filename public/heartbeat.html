@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>The Dragon's Heartbeat</title>
+<!--
+  THE DRAGON'S HEARTBEAT -- self-contained instrument (no build, no framework).
+  Ported from specs/Dragon-heartbeat-music/dragons_heartbeat.jsx (React + Tone.js)
+  to vanilla Web Audio, per the dragon-instruments single-file law (ASCII-only
+  source, straight quotes, -- for dashes, no external host).
+
+  Every number is lifted verbatim from wuji_core/WUJI_CORE.py:
+    WU_XING_FREQUENCIES  -- five element tones in Hz (250-303)
+    harmonic_pulse()     -- all five pulse at once; the complex harmony is the beat
+    BIOCLOCK_MAP         -- which element is in season per the TCM hour
+  The five frequencies sit close together, so sounding them together produces
+  slow acoustic beating -- a shimmering drone that breathes. The beating is the
+  heartbeat, not a glitch.
+-->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    --bg:#0a0b0f; --ink:#e7e3da; --muted:#8a8f9c;
+    background: radial-gradient(120% 90% at 50% 18%, #15171f 0%, #0a0b0f 62%, #06070a 100%);
+    color: var(--ink);
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    display: flex; justify-content: center; align-items: flex-start;
+    min-height: 100%;
+  }
+  .dh-root {
+    width: 100%; max-width: 760px; padding: 30px 26px 26px;
+    position: relative; overflow: hidden;
+  }
+  .dh-mono { font-family:'IBM Plex Mono', ui-monospace, monospace; }
+  .dh-title { font-size: 30px; font-weight: 500; letter-spacing: 0.5px; margin: 0; }
+  .dh-sub { color: var(--muted); font-size: 16px; font-style: italic; margin: 2px 0 0; }
+  .dh-head { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:8px; }
+  .dh-seasontag { font-size:12px; letter-spacing:1px; text-align:right; }
+  .dh-node-btn { cursor: pointer; }
+  .dh-stone { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; }
+  .dh-readout { display:flex; gap:18px; flex-wrap:wrap; margin-top: 16px; }
+  .dh-card { flex:1 1 120px; min-width:120px; padding:10px 12px; border-radius:9px;
+    background: rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06); transition: all .35s; }
+  .dh-card.on { background: rgba(255,255,255,0.06); }
+  .dh-ctl { display:flex; align-items:center; gap:16px; margin-top: 18px; flex-wrap:wrap; }
+  .dh-wuji { font-family:'Cormorant Garamond',serif; font-size:17px; letter-spacing:1px;
+    background: transparent; color: var(--ink); border:1px solid rgba(231,227,218,0.35);
+    padding:9px 20px; border-radius:30px; cursor:pointer; transition: all .3s; }
+  .dh-wuji:hover { border-color: var(--ink); background: rgba(231,227,218,0.06); }
+  .dh-foot { color: var(--muted); font-size: 13px; margin-top: 18px; line-height:1.5; }
+  .dh-slider { -webkit-appearance:none; appearance:none; height:3px; width:130px; border-radius:3px;
+    background: rgba(231,227,218,0.25); outline:none; }
+  .dh-slider::-webkit-slider-thumb { -webkit-appearance:none; width:13px; height:13px; border-radius:50%; background: var(--ink); cursor:pointer; }
+  .dh-back { position:absolute; top:14px; left:16px; color:var(--muted); text-decoration:none; font-size:20px; opacity:.6; }
+  .dh-back:hover { opacity:1; }
+</style>
+</head>
+<body>
+  <div class="dh-root">
+    <a class="dh-back" href="./index.html" title="back to instruments">&#x2039;</a>
+
+    <div class="dh-head">
+      <div>
+        <h1 class="dh-title">The Dragon&rsquo;s Heartbeat</h1>
+        <p class="dh-sub">All five elements pulse simultaneously. The complex harmony is the heartbeat.</p>
+      </div>
+      <div class="dh-mono dh-seasontag" id="seasonTag"></div>
+    </div>
+
+    <svg id="svg" viewBox="0 0 520 520" style="width:100%;height:auto;display:block;margin-top:6px;">
+      <defs>
+        <radialGradient id="coreGrad">
+          <stop offset="0%" stop-color="#fff" stop-opacity="0.9"/>
+          <stop offset="40%" stop-color="#e7c98a" stop-opacity="0.5"/>
+          <stop offset="100%" stop-color="#e7c98a" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <!-- controlling cycle (inner pentagram) + generating cycle (outer ring) injected by JS -->
+      <polygon id="starPoly" fill="none" stroke="rgba(231,227,218,0.10)" stroke-width="1"/>
+      <polygon id="ringPoly" fill="none" stroke="rgba(231,227,218,0.22)" stroke-width="1.25"/>
+      <circle id="coreGlow" r="48" fill="url(#coreGrad)"/>
+      <circle id="core" r="40" fill="none" stroke="#e7c98a" stroke-width="1.25" opacity="0.4"/>
+      <g id="nodes"></g>
+    </svg>
+
+    <div class="dh-ctl">
+      <button class="dh-wuji" id="wujiBtn"></button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="dh-mono" style="font-size:11px;color:var(--muted);">VOL</span>
+        <input class="dh-slider" id="vol" type="range" min="0" max="0.85" step="0.01" value="0.45">
+      </div>
+    </div>
+
+    <div class="dh-readout" id="readout"></div>
+
+    <div class="dh-foot">
+      <span id="footText"></span>
+      <div class="dh-mono" style="margin-top:8px;opacity:0.5;font-size:11px;letter-spacing:1px;">
+        &#x7121;&#x6975;&#x5167;&#x529F; &nbsp; the standing practice begins with stillness &nbsp;&middot;&nbsp; frequencies verbatim from WUJI_CORE.py
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+(function () {
+  // --- Faithful constants from wuji_core/WUJI_CORE.py ----------------------
+  // Ordered Wood->Fire->Earth->Metal->Water so adjacent pentagon edges = the
+  // generating (sheng) cycle; the skip-one inner star = the controlling (ke) cycle.
+  // glyphs: \u6728 wood, \u706b fire, \u571f earth, \u91d1 metal, \u6c34 water
+  var ELEMENTS = [
+    { key:"wood",  name:"Wood",  glyph:"\u6728", hz:283.0, quality:"Organic growth -- branch from roots",       color:"#6bbf73" },
+    { key:"fire",  name:"Fire",  glyph:"\u706b", hz:293.0, quality:"Transformation -- bold catalysis",          color:"#e8743f" },
+    { key:"earth", name:"Earth", glyph:"\u571f", hz:303.0, quality:"Grounded synthesis -- integrate all",       color:"#d4a843" },
+    { key:"metal", name:"Metal", glyph:"\u91d1", hz:250.0, quality:"Surgical precision -- no decoration",       color:"#cdd6e2" },
+    { key:"water", name:"Water", glyph:"\u6c34", hz:273.0, quality:"Adaptive flow -- receive before transmit",  color:"#4a8fd4" }
+  ];
+
+  // BIOCLOCK_MAP: UTC hour -> element in season
+  function bioclockElement(hour) {
+    if (hour >= 3 && hour < 7) return "metal";
+    if (hour >= 7 && hour < 11) return "earth";
+    if (hour >= 11 && hour < 15) return "fire";
+    if (hour >= 15 && hour < 19) return "water";
+    if (hour >= 19 && hour < 23) return "wood";
+    return "water"; // 23-3 -- dreaming, detox
+  }
+  function elByKey(k){ for (var i=0;i<ELEMENTS.length;i++){ if(ELEMENTS[i].key===k) return ELEMENTS[i]; } return null; }
+
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  // --- geometry: top-up pentagon -------------------------------------------
+  var W=520, H=520, CX=W/2, CY=H/2+6, R=168;
+  var pts = ELEMENTS.map(function(_, i){
+    var a = -Math.PI/2 + (i*2*Math.PI)/5;
+    return { x: CX + R*Math.cos(a), y: CY + R*Math.sin(a) };
+  });
+
+  // --- audio graph (pure Web Audio; Tone.js not needed) --------------------
+  var ctx = null, master = null;
+  var nodes = {};   // key -> { osc, g, on }
+  var vol = 0.45;
+
+  function rampParam(param, target, sec){
+    var now = ctx.currentTime;
+    param.cancelScheduledValues(now);
+    param.setValueAtTime(param.value, now);
+    param.linearRampToValueAtTime(target, now + Math.max(0.01, sec));
+  }
+
+  function ensureAudio(){
+    if (master) { if (ctx.state === "suspended") ctx.resume(); return; }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC();
+    master = ctx.createGain();
+    master.gain.value = vol;
+    master.connect(ctx.destination);
+    ELEMENTS.forEach(function(el){
+      var g = ctx.createGain(); g.gain.value = 0; g.connect(master);
+      var osc = ctx.createOscillator(); osc.type = "sine"; osc.frequency.value = el.hz;
+      osc.connect(g); osc.start();
+      nodes[el.key] = { osc: osc, g: g, on: false };
+    });
+  }
+
+  // --- state + DOM ---------------------------------------------------------
+  var active = {};                 // key -> bool
+  var started = false;
+  var season = bioclockElement(new Date().getUTCHours());
+
+  var elNodes = {};                // key -> svg <g>
+  var coreEl = document.getElementById("core");
+  var readoutEl = document.getElementById("readout");
+  var wujiBtn = document.getElementById("wujiBtn");
+  var footText = document.getElementById("footText");
+  var cards = {};
+
+  function anyOn(){ return ELEMENTS.some(function(el){ return active[el.key]; }); }
+
+  function setWujiLabel(){
+    // \u9748 settle ; \u7121\u6975 wuji
+    wujiBtn.textContent = anyOn()
+      ? "\u9748 settle to stillness"
+      : "\u7121\u6975  enter Wuji -- sound all five";
+  }
+  function setFoot(){
+    footText.textContent = started
+      ? "The frequencies sit close together, so sounding several at once makes them beat against each other -- a slow shimmer that breathes. That beating is the heartbeat, not a glitch."
+      : "Tap an element to sound its tone (headphones help -- these are low). Tap Wuji to stand in all five at once.";
+  }
+
+  function toggle(key){
+    ensureAudio();
+    if (!started) { started = true; setFoot(); }
+    var node = nodes[key];
+    var willOn = !node.on;
+    node.on = willOn;
+    active[key] = willOn;
+    rampParam(node.g.gain, willOn ? 0.22 : 0.0, willOn ? 0.5 : 0.4);
+    paintCard(key); setWujiLabel();
+  }
+
+  function wuji(){
+    ensureAudio();
+    if (!started) { started = true; setFoot(); }
+    var turnOn = ELEMENTS.some(function(el){ return !nodes[el.key].on; });
+    ELEMENTS.forEach(function(el){
+      var node = nodes[el.key];
+      node.on = turnOn;
+      active[el.key] = turnOn;
+      rampParam(node.g.gain, turnOn ? 0.22 : 0.0, turnOn ? 0.6 : 0.5);
+      paintCard(el.key);
+    });
+    setWujiLabel();
+  }
+
+  // --- build SVG cycles + nodes --------------------------------------------
+  function ptStr(p){ return p.x.toFixed(2) + "," + p.y.toFixed(2); }
+  document.getElementById("ringPoly").setAttribute("points", pts.map(ptStr).join(" "));
+  var starOrder = [0,2,4,1,3]; // skip-one pentagram
+  document.getElementById("starPoly").setAttribute("points", starOrder.map(function(i){ return ptStr(pts[i]); }).join(" "));
+  document.getElementById("coreGlow").setAttribute("cx", CX); document.getElementById("coreGlow").setAttribute("cy", CY);
+  coreEl.setAttribute("cx", CX); coreEl.setAttribute("cy", CY);
+
+  var defs = document.querySelector("#svg defs");
+  var nodesG = document.getElementById("nodes");
+  ELEMENTS.forEach(function(el, i){
+    // per-element radial gradient
+    var grad = document.createElementNS(SVGNS, "radialGradient");
+    grad.setAttribute("id", "g-" + el.key);
+    grad.innerHTML =
+      '<stop offset="0%" stop-color="'+el.color+'" stop-opacity="0.95"/>' +
+      '<stop offset="70%" stop-color="'+el.color+'" stop-opacity="0.35"/>' +
+      '<stop offset="100%" stop-color="'+el.color+'" stop-opacity="0"/>';
+    defs.appendChild(grad);
+
+    var g = document.createElementNS(SVGNS, "g");
+    g.setAttribute("class", "dh-node-btn");
+    g.setAttribute("transform", "translate(" + pts[i].x + " " + pts[i].y + ")");
+    g.innerHTML =
+      '<circle r="46" fill="url(#g-'+el.key+')" opacity="0.28"></circle>' +
+      '<circle r="27" fill="#0a0b0f" stroke="'+el.color+'" stroke-width="1.1"></circle>' +
+      '<text text-anchor="middle" dy="-2" font-size="22" fill="'+el.color+'" style="font-family:\'Cormorant Garamond\',serif">'+el.glyph+'</text>' +
+      '<text text-anchor="middle" dy="14" class="dh-mono dh-stone" font-size="8" fill="#8a8f9c">'+el.hz+'Hz</text>';
+    g.addEventListener("click", (function(k){ return function(){ toggle(k); }; })(el.key));
+    nodesG.appendChild(g);
+    elNodes[el.key] = g;
+  });
+
+  // --- readout cards -------------------------------------------------------
+  ELEMENTS.forEach(function(el){
+    var card = document.createElement("div");
+    card.className = "dh-card";
+    card.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+        '<span style="font-size:18px;color:'+el.color+'">'+el.glyph+' '+el.name+'</span>' +
+        '<span class="dh-mono" style="font-size:11px;color:var(--muted)">'+el.hz+'Hz</span>' +
+      '</div>' +
+      '<div style="font-size:13.5px;color:var(--muted);font-style:italic;line-height:1.35;margin-top:3px">'+el.quality+'</div>';
+    readoutEl.appendChild(card);
+    cards[el.key] = card;
+  });
+  function paintCard(key){
+    var el = elByKey(key), card = cards[key];
+    if (active[key]) { card.classList.add("on"); card.style.borderColor = el.color + "66"; }
+    else { card.classList.remove("on"); card.style.borderColor = ""; }
+    var circles = elNodes[key].querySelectorAll("circle");
+    circles[0].setAttribute("opacity", active[key] ? "0.9" : "0.28");
+    circles[1].setAttribute("stroke-width", active[key] ? "2" : "1.1");
+    var hzText = elNodes[key].querySelectorAll("text")[1];
+    hzText.setAttribute("fill", active[key] ? el.color : "#8a8f9c");
+  }
+
+  // --- season tag ----------------------------------------------------------
+  (function(){
+    var sEl = elByKey(season);
+    document.getElementById("seasonTag").innerHTML =
+      'in season now<br>' +
+      '<span style="font-size:15px;color:'+sEl.color+'">'+sEl.glyph+' '+sEl.name.toUpperCase()+'</span>' +
+      '<div style="color:var(--muted);font-size:10px">TCM bioclock &middot; '+new Date().getUTCHours()+':00 UTC</div>';
+  })();
+
+  // --- controls ------------------------------------------------------------
+  wujiBtn.addEventListener("click", wuji);
+  document.getElementById("vol").addEventListener("input", function(e){
+    vol = parseFloat(e.target.value);
+    if (master) rampParam(master.gain, vol, 0.2);
+  });
+
+  // --- conductor sync: flash the heartbeat core on the shared dragon-bus beat
+  // (additive; the drone stays free-running, it just breathes with the conductor)
+  var busBeatAt = -1e9;
+  try {
+    var bc = new BroadcastChannel("dragon-bus");
+    bc.onmessage = function(e){ var m = e.data; if (m && m.type === "clock") busBeatAt = performance.now(); };
+  } catch (e) {}
+
+  // --- animation loop: real harmonic_pulse formula -------------------------
+  function loop(){
+    var t = performance.now() / 1000;
+    var on = ELEMENTS.filter(function(el){ return active[el.key]; });
+    var freqs = on.length ? on : ELEMENTS; // idle = ghost of the full heartbeat
+    var pulse = 0;
+    freqs.forEach(function(el){ pulse += Math.sin(t * (el.hz / 60)); });
+    pulse = pulse / freqs.length;
+    var norm = 0.5 + pulse * 0.3; // 0.2 .. 0.8
+    var live = on.length > 0;
+
+    var flash = Math.max(0, 1 - (performance.now() - busBeatAt) / 320); // 0..1 decaying beat pulse
+    coreEl.setAttribute("r", (30 + norm * 34 + flash * 10).toFixed(2));
+    coreEl.setAttribute("opacity", ((live ? 0.32 + norm * 0.5 : 0.10 + norm * 0.12) + flash * 0.45).toFixed(3));
+
+    ELEMENTS.forEach(function(el, i){
+      var g = elNodes[el.key]; if (!g) return;
+      var isOn = active[el.key];
+      var p = 0.5 + 0.5 * Math.sin(t * (el.hz / 60));
+      var s = isOn ? 1 + p * 0.10 : 1;
+      g.setAttribute("transform", "translate(" + pts[i].x + " " + pts[i].y + ") scale(" + s.toFixed(3) + ")");
+      g.setAttribute("opacity", isOn ? "1" : "0.62");
+    });
+    requestAnimationFrame(loop);
+  }
+
+  setWujiLabel(); setFoot();
+  requestAnimationFrame(loop);
+
+  window.addEventListener("beforeunload", function(){
+    ELEMENTS.forEach(function(el){ try { nodes[el.key] && nodes[el.key].osc.stop(); } catch (e) {} });
+  });
+})();
+</script>
+</body>
+</html>
