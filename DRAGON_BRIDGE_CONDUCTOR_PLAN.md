@@ -243,3 +243,36 @@ rejected (narrated). Verified end-to-end in the browser against the LIVE grabber
 srcBPM 116.51 / match on / playbackRate 0.858 (= master 100 / 116.51) / fader 0.966.
 STILL OPEN in Phase 2: SoundTouch true time-stretch (vendoring a third-party lib into
 public/vendor -- held for the Architect's nod), key-shift to sessionKey (Phase 3).
+
+## ADDENDUM 2026-07-06d -- PHASES 2/3/5 COMPLETE (SoundTouch, session key, breath + Listener)
+
+PHASE 2 COMPLETE: SoundTouchJS 0.3.0 vendored VERBATIM (LGPL-2.1) at public/vendor/
+soundtouch.js, exposed by a module shim. Manifest'd file channels offline-render a
+stretched + key-shifted buffer (chunked async, generation-tokened) and swap the media
+element for a looped buffer source; re-render debounced on bpm/key change; applyRate
+remains the fallback. VERIFIED live vs the deployed grabber: a 121.16-bpm grab rendered
+90s -> 108.6s at master 100 (exact tempo ratio, pitch preserved), re-rendered to 90.6s
+at 120, +5 st on a D-minor reselect.
+
+PHASE 3 COMPLETE: sessionKey selector in the clock bar (auto = adopt the first analyzed
+grab's key -- VERIFIED: A:minor conf 0.806 auto-adopted; Conductor plans adopt on auto
+too); semitone delta wraps +/-6 into the stretch render; conductor synth beds follow the
+key (root 62 on D-minor). Optional voidscale/ghatika bus senders NOT done (soundlab.html
+is the sibling-sender exemplar; the two graduated instruments stay untouched per repo law).
+
+PHASE 5 BUILT: time-authority segmented control in the Conductor bar.
+- Breath-led: beatless by construction -- stops clock/DJ/grid-beds, spawns pad+drone beds
+  if none, slow linear-attack swells (attack 0.45x / release 1.3x the breath period,
+  default 6s/side, 3-20s). VERIFIED: beds spawn, swells run, clock stays OFF, clean exit.
+- Listener: mic via getUserMedia (click-fired), analyser on rAF (never the audio thread,
+  mic NOT routed to master), onset -> median IOI -> tempo folded 60-180, session bpm
+  follows (restretch included), "following you: N bpm" indicator. Mic-denied degrades
+  narrated to Session (VERIFIED -- headless preview). Key-follow DEFERRED (tempo only,
+  stated honestly). Real-mic tempo lock needs the Architect's hands + a metronome.
+
+INCIDENT (Architect action needed): the dragon-grabber Railway service's GitHub source is
+misconnected to the dragon-instruments REPO -- the 11:34:47 push of the Phase 2 ingest
+commit auto-deployed a static `serve` build ONTO dragon-grabber (grabber 404'd; restored
+by railway up 39a3eba3). Until the dashboard source is fixed (dragon-grabber service ->
+Settings -> Source -> Cloud-Eye-Prime/dragon-grabber), dragon-instruments commits are
+held LOCAL (cae7645 + this one) and deploys go by railway up only. After the fix, push.

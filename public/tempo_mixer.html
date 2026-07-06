@@ -162,6 +162,12 @@ body.conductor #aibar{opacity:.55}
       <button class="tbtn" id="cvStop">stop set</button>
       <span class="tdim" id="cvKey">key --</span>
     </div>
+    <div class="cvrow">
+      <span class="tdim">time authority</span>
+      <div class="seg-ctl" id="authSeg" title="Session-led: the AI's clock. Breath-led: beatless swells on a breath period (yoga/tai chi) -- no forced beat. Listener: your mic leads, the session follows your tempo."><button data-auth="session" class="on">Session</button><button data-auth="breath">Breath</button><button data-auth="listener">Listener</button></div>
+      <span class="tdim" id="breathRow" style="display:none">breath <input class="x" id="breathSec" type="number" min="3" max="20" value="6" style="width:44px"> s/side</span>
+      <span class="tdim" id="listenTag" style="display:none">following you: <span id="listenBpm" style="color:var(--cyan)">--</span> bpm</span>
+    </div>
     <div id="cvLog"></div>
   </div>
   <div class="xfader">
@@ -680,7 +686,80 @@ async function conductorPlan(){
  setTimeout(function(){if(conductor.on&&aiKey()&&!dj.on)djStart();},600);
  $('cvGo').classList.remove('on');setStatus('Conductor performing -- touch the console to take over');
 }
-function conductorStop(){conductor.on=false;stopConductorBeds();djStop('conductor stopped');cvLog('set ended -- beds silenced','warn');setStatus('Conductor stopped');}
+function conductorStop(){conductor.on=false;stopConductorBeds();stopBreath();stopListener();djStop('conductor stopped');cvLog('set ended -- beds silenced','warn');setStatus('Conductor stopped');}
+
+// ===== Phase 5: time authority -- Session-led | Breath-led | Listener =====
+var AUTH={mode:'session'};
+// Breath-led (yoga/tai chi): beatless by design. Slow linear-attack swells on
+// pad/drone/bass beds only, timed by the breath period -- never a grid, never
+// a hard cut. The cardinal failure to avoid: forcing a beat onto stillness.
+var breath={timer:null,count:0};
+function breathNote(ch,midi,vol,attack,release){if(!started)return;var f=440*Math.pow(2,(midi-69)/12),now=ctx.currentTime;
+ var o=ctx.createOscillator();o.type=ch.timbre||'sine';o.frequency.value=f;
+ var g=ctx.createGain();g.gain.setValueAtTime(0.0001,now);g.gain.linearRampToValueAtTime(vol,now+attack);g.gain.exponentialRampToValueAtTime(0.0008,now+attack+release);
+ o.connect(g);g.connect(ch.nodes.inGain);o.start(now);o.stop(now+attack+release+0.1);}
+function breathPeriod(){return Math.max(3,Math.min(20,parseInt($('breathSec').value,10)||6));}
+function breathTick(){
+ if(AUTH.mode!=='breath')return;
+ var per=breathPeriod(),sc=conductor.scale,root=conductor.root;
+ var chordDeg=[sc[0],sc[2%sc.length],sc[4%sc.length]];
+ conductor.beds.forEach(function(b,i){
+  if(b.role==='lead'||b.role==='arp')return;
+  var ch=channels.get(b.id);if(!ch)return;
+  var midi=root+(b.role==='bass'?-12:0)+chordDeg[(breath.count+i)%chordDeg.length];
+  breathNote(ch,midi,0.16,per*0.45,per*1.3);
+ });
+ breath.count++;
+ breath.timer=setTimeout(breathTick,per*1000);}
+function stopBreath(){if(breath.timer){clearTimeout(breath.timer);breath.timer=null;}}
+
+// Listener (live musician): the mic leads. Onset energy -> median inter-onset
+// interval -> tempo folded into 60-180; the SESSION follows (bpm + restretch).
+// Analysis reads an analyser on rAF -- never the audio thread; the mic is NOT
+// routed to the master (no feedback). Key-follow deferred (tempo only, honest).
+var listener={on:false,stream:null,src:null,an:null,buf:null,onsets:[],lastE:0,raf:null,lastSet:0};
+async function startListener(){
+ if(listener.on)return;
+ var st;try{st=await navigator.mediaDevices.getUserMedia({audio:true});}catch(e){cvLog('mic denied: '+String(e.message).slice(0,60),'warn');setAuthority('session');return;}
+ if(!started)startAudio();
+ listener.stream=st;listener.src=ctx.createMediaStreamSource(st);
+ listener.an=ctx.createAnalyser();listener.an.fftSize=2048;listener.src.connect(listener.an);
+ listener.buf=new Float32Array(listener.an.fftSize);
+ listener.on=true;listener.onsets=[];listener.lastE=0;listener.lastSet=0;
+ listenLoop();cvLog('listener live -- play; the session follows your tempo','n');}
+function stopListener(){if(!listener.on)return;listener.on=false;if(listener.raf)cancelAnimationFrame(listener.raf);
+ try{listener.stream.getTracks().forEach(function(t){t.stop();});}catch(e){}try{listener.src.disconnect();}catch(e){}$('listenBpm').textContent='--';}
+function listenLoop(){
+ if(!listener.on)return;
+ listener.an.getFloatTimeDomainData(listener.buf);
+ var e=0;for(var i=0;i<listener.buf.length;i++)e+=listener.buf[i]*listener.buf[i];e=Math.sqrt(e/listener.buf.length);
+ var now=performance.now();
+ if(e>0.02&&e>listener.lastE*1.6&&(!listener.onsets.length||now-listener.onsets[listener.onsets.length-1]>180)){listener.onsets.push(now);if(listener.onsets.length>24)listener.onsets.shift();}
+ listener.lastE=listener.lastE*0.95+e*0.05;
+ if(listener.onsets.length>=6&&now-listener.lastSet>2500){
+  var iois=[];for(var j=1;j<listener.onsets.length;j++){var d=listener.onsets[j]-listener.onsets[j-1];if(d>250&&d<2000)iois.push(d);}
+  if(iois.length>=4){iois.sort(function(a,b){return a-b;});var med=iois[iois.length>>1],b2=60000/med;
+   while(b2<60)b2*=2;while(b2>180)b2/=2;b2=Math.round(b2);
+   $('listenBpm').textContent=b2;
+   if(Math.abs(b2-bpm())>=2){$('bpm').value=b2;$('bpm').onchange();cvLog('following you: '+b2+' bpm','n');}
+   listener.lastSet=now;}}
+ listener.raf=requestAnimationFrame(listenLoop);}
+
+function setAuthority(m){AUTH.mode=m;
+ document.querySelectorAll('#authSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.auth===m);});
+ $('breathRow').style.display=m==='breath'?'':'none';
+ $('listenTag').style.display=m==='listener'?'':'none';
+ if(m==='breath'){
+  if(!started)startAudio();
+  stopListener();stopConductorBeds();
+  if(dj.on)djStop('breath-led -- beatless');
+  if(clockOn){clockOn=false;$('clockBtn').classList.remove('on');stopClock();}
+  if(!conductor.beds.length){['pad','drone'].forEach(function(role){var id='cbed-breath'+role;var ch=ensureComposer(id,'~'+role);ch.timbre=role==='pad'?'triangle':'sine';conductor.beds.push({id:id,role:role});});}
+  breath.count=0;stopBreath();breathTick();
+  cvLog('breath-led: '+breathPeriod()+'s per side, beatless swells -- no forced beat','n');}
+ else if(m==='listener'){stopBreath();if(conductor.on&&conductor.beds.length)startConductorBeds();startListener();}
+ else{stopBreath();stopListener();if(conductor.on&&conductor.beds.length)startConductorBeds();setStatus('session-led');}}
+document.querySelectorAll('#authSeg button').forEach(function(b){b.addEventListener('click',function(){setAuthority(b.dataset.auth);});});
 $('modeConsole').onclick=function(){setConductorMode(false);};
 $('modeConductor').onclick=function(){if(!started)startAudio();setConductorMode(true);};
 $('cvGo').onclick=conductorPlan;
