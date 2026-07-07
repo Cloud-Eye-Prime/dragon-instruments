@@ -123,6 +123,7 @@ body.embed #cvIntent,body.embed #cvGo,body.embed #cvStop,body.embed #cvLog{displ
       <button class="tbtn" id="llArm" title="arm -- capture begins on the next bar downbeat">arm loop</button>
       <button class="tbtn" id="llAI" title="AI mode -- generate + evolve a melodic loop from the internal synth stack on the phrase grid (no mic)">human</button>
       <button class="tbtn" id="llCal" title="calibrate mic-to-speaker latency for tight loops">cal</button>
+      <button class="tbtn" id="llLead" title="LEAD mode (opt-in) -- a melodic layer built from real recorded loops, tempo-locked and rotated on the phrase grid (not the synth)">lead</button>
     </span>
     <input class="x" id="urlIn" placeholder="media url" style="width:140px"><button class="tbtn" id="urlBtn">load url</button>
     <button class="tbtn" id="ytBtn">add from YouTube...</button>
@@ -250,7 +251,7 @@ function syncMasterUI(v){var ms=$('masterStrip');if(ms){var f=ms.querySelector('
 var SCHED_AHEAD=0.15,SCHED_TICK=25,schedTimer=null,nextBeatTime=0;var SWING=0.5;
 function startClock(){if(!started)return;if(schedTimer)return;nextBeatTime=ctx.currentTime+0.06;schedTimer=setInterval(clockScheduler,SCHED_TICK);}
 function stopClock(){if(schedTimer){clearInterval(schedTimer);schedTimer=null;}}
-function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2+(SWING-0.5)*spb);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));if(liveIn.armed&&b===0)beginLoopCapture();if(b===0)loopFxTick();if(aiLoop.on){var _bar=Math.floor(beatCount/4),_q=spb/4;for(var _i=0;_i<4;_i++)aiLoopTick(nextBeatTime+_i*_q+((_i&1)?(2*SWING-1)*_q:0),b*4+_i,_bar);}nextBeatTime+=spb;}}
+function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2+(SWING-0.5)*spb);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));if(liveIn.armed&&b===0)beginLoopCapture();if(b===0)loopFxTick();if(lead.on&&b===0){var _lb=Math.floor(beatCount/4)-lead.startBar;if(_lb>0&&_lb%lead.every===0)leadLoad();}if(aiLoop.on){var _bar=Math.floor(beatCount/4),_q=spb/4;for(var _i=0;_i<4;_i++)aiLoopTick(nextBeatTime+_i*_q+((_i&1)?(2*SWING-1)*_q:0),b*4+_i,_bar);}nextBeatTime+=spb;}}
 function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio){try{ch.audio.currentTime=0;}catch(e){}}});if(loopBuffer)restartLoop();setStatus('re-synced');}
 
 function handleBus(m){if(!m||!m.type)return;if(m.type==='hello')ensureComposer(m.id,m.name);else if(m.type==='bye')removeChannel(m.id);else if(m.type==='note'){var ch=ensureComposer(m.id,m.name);composerNote(ch,m.note|0,m.vel||100,m.dur||0.4);}}
@@ -469,6 +470,14 @@ function aiLoopTick(when,step16,barAbs){
  }
 }
 
+// ===== curated real-loop LEAD (OPT-IN mode) -- a melodic layer from REAL recorded loops,
+// not oscillators. Grabs short real phrases, tempo-locks them, layers them UNDER the main
+// track as a garnish, and rotates the active loop on the phrase grid. Never default-on.
+var lead={on:false,pool:[],every:32,startBar:0,chId:null};
+function leadQueriesFor(intent){var g=(conductor.genres&&conductor.genres[0]);var b=g?g.n:'melodic';return [b+' loop',b+' lick',b+' hook loop'];}
+async function leadStart(intent){if(!started)startAudio();if(lead.on)return;lead.on=true;lead.startBar=Math.floor(beatCount/4);lead.pool=[];var qs=leadQueriesFor(intent||'');cvLog('lead: curating real loops ('+qs.slice(0,2).join(', ')+')...','n');setStatus('curating real lead loops...');var base=$('grabBase').value.trim().replace(/\/+$/,'');for(var i=0;i<2;i++){try{var r=await fetch(base+'/grab?q='+encodeURIComponent(qs[i])+'&start=0&end=12&analyze=1');if(!r.ok)continue;var d=await r.json();if(d&&d.file)lead.pool.push({url:base+d.file,title:d.title||qs[i],manifest:d.manifest});}catch(e){}}cvLog('lead: '+lead.pool.length+' real loop(s) staged','n');if(!lead.pool.length){setStatus('lead: no loops grabbed');return;}var b=$('llLead');if(b){b.classList.add('on');b.textContent='lead on';}leadLoad();}
+function leadLoad(){if(!lead.on||!lead.pool.length)return;if(lead.chId&&channels.get(lead.chId)){try{removeChannel(lead.chId);}catch(e){}}var pick=lead.pool[Math.floor(_rng()*lead.pool.length)];var ch=addFileChannel(pick.url,('lead '+(pick.title||'')).slice(0,16));ch.isLead=true;ch.fader=0.42;if(pick.manifest){attachManifest(ch,pick.manifest);ch.match=true;applyRate(ch);}lead.chId=ch.id;if(ch.audio){try{ch.audio.play();}catch(e){}}recomputeGains(0.3);cvLog('lead in: '+(pick.title||'loop').slice(0,40),'n');}
+function leadStop(){lead.on=false;if(lead.chId&&channels.get(lead.chId)){try{removeChannel(lead.chId);}catch(e){}}lead.chId=null;lead.pool=[];var b=$('llLead');if(b){b.classList.remove('on');b.textContent='lead';}setStatus('lead layer off');}
 function addFileChannel(url,name){if(!started)startAudio();var audio=new Audio();audio.crossOrigin='anonymous';audio.src=url;audio.loop=true;var src=ctx.createMediaElementSource(audio);var id='file-'+Math.random().toString(36).slice(2,7);var ch=buildChannel({id:id,type:'file',name:(name||'File').slice(0,18),color:COLS[order.length%COLS.length],head:src,audio:audio,group:null});ch.srcUrl=url;audio.addEventListener('error',function(){setStatus('file/url load error (CORS?) - '+ch.name);});applyRate(ch);audio.play().catch(function(){});setStatus('loaded: '+ch.name+' - set bpm + match');return ch;}
 // Phase 2 ingest: attach a dragon-mix-manifest to a channel -- srcBPM from the
 // analyzed grid (match on), arrival gain from LUFS, sections kept for the
@@ -1011,6 +1020,7 @@ async function conductorPlan(){
  var b0=conductor.blocks[0];dj.intents=[b0.phase+': '+b0.focus];conductor.densLo=Math.max(0,b0.density-0.12);conductor.densHi=Math.min(1,b0.density+0.12);conductor.energyDir=(conductor.blocks[1]&&conductor.blocks[1].density<b0.density)?-1:1;
  cvLog('spine: '+conductor.blocks.length+' blocks -- '+conductor.blocks.map(function(b){return b.phase+'@'+b.density;}).join(' / '),'n');
  prefetchQueries(b0.queries,3).then(function(){if(conductor.on)conductorLoadNext();});
+ if(/\b(lead|melody|topline|solo|riff|hook|lick|melodic voice)\b/i.test(intent))leadStart(intent);
  setTimeout(function(){if(conductor.on&&!dj.on)djStart();},600);
  $('cvGo').classList.remove('on');setStatus('Conductor performing -- touch the console to take over');
 }
@@ -1119,6 +1129,7 @@ $('fileBtn').onclick=function(){$('fileInput').click();};
 $('llBtn').onclick=liveLoopInput;
 $('llArm').onclick=armLoopCapture;
 $('llCal').onclick=calibrateLatency;
+$('llLead').onclick=function(){lead.on?leadStop():leadStart(($('cvIntent')&&$('cvIntent').value)||'');};
 $('llAI').onclick=function(){liveIn.mode=(liveIn.mode==='AI'?'human':'AI');var b=$('llAI');b.textContent=liveIn.mode;b.classList.toggle('on',liveIn.mode==='AI');if(liveIn.mode==='AI'){if(!started)startAudio();aiLoopStart();}else aiLoopStop();};
 $('urlBtn').onclick=loadUrl;
 $('grabBtn').onclick=grabYouTube;
