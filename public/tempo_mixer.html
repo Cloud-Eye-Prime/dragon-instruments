@@ -648,7 +648,7 @@ $('djBtn').onclick=function(){dj.on?djStop():djStart();};
 // the grabber keyword lane when live and degrades honestly when it is not
 // (the grabber q=/analyze= lane is Phase 1 of the plan, deploy-gated).
 var conductorMode=false;
-var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
+var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,keyBias:null,recipeBias:null,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
 function conductorAdvanceKey(){var code=nextKey();var kk=CAMELOT_TO_KEY[code];if(!kk)return;setSessionKey(kk.pc,kk.scale);cvLog('key walk -> '+code+' ('+PITCHES[kk.pc]+' '+kk.scale+')','n');}
 var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],pentatonic:[0,2,4,7,9]};
 var NOTEBASE={c:0,'c#':1,db:1,d:2,'d#':3,eb:3,e:4,f:5,'f#':6,gb:6,g:7,'g#':8,ab:8,a:9,'a#':10,bb:10,b:11};
@@ -679,7 +679,7 @@ function camelotToKeyName(code){var k=CAMELOT_TO_KEY[String(code).toUpperCase()]
 var RECIPES=['filter-wash','bass-swap-drop','double-drop','drone-dissolve','breakdown-rebuild','key-lift','loop-roll','tempo-drift','backspin-cut','echo-out','sidechain-pump','half-time-feel'];
 var stepper={key:'8A',rng:mulberry32(1),visited:[],tracks:[],deck:[],VK:4,TK:8};
 function stepperReset(startCamelot,seed){stepper.key=camelotParse(startCamelot)?String(startCamelot).toUpperCase():'8A';stepper.rng=mulberry32((((seed>>>0)||1)^0x9e3779b9)>>>0);stepper.visited=[stepper.key];stepper.tracks=[];stepper.deck=[];}
-function nextKey(){var nb=camelotNeighbors(stepper.key);var fresh=nb.filter(function(k){return stepper.visited.indexOf(k)<0;});var pool=fresh.length?fresh:nb.filter(function(k){return k!==stepper.key;});if(!pool.length)pool=nb;var pick=pool[Math.floor(stepper.rng()*pool.length)];stepper.key=pick;stepper.visited.push(pick);if(stepper.visited.length>stepper.VK)stepper.visited.shift();return pick;}
+function nextKey(){var nb=camelotNeighbors(stepper.key);var fresh=nb.filter(function(k){return stepper.visited.indexOf(k)<0;});var pool=fresh.length?fresh:nb.filter(function(k){return k!==stepper.key;});if(!pool.length)pool=nb;if(conductor.keyBias){var _b=pool.filter(function(k){return k.slice(-1)===conductor.keyBias;});if(_b.length)pool=_b;}var pick=pool[Math.floor(stepper.rng()*pool.length)];stepper.key=pick;stepper.visited.push(pick);if(stepper.visited.length>stepper.VK)stepper.visited.shift();return pick;}
 function nextRecipe(){if(!stepper.deck.length){stepper.deck=RECIPES.slice();for(var i=stepper.deck.length-1;i>0;i--){var j=Math.floor(stepper.rng()*(i+1));var t=stepper.deck[i];stepper.deck[i]=stepper.deck[j];stepper.deck[j]=t;}}return stepper.deck.pop();}
 function trackUsable(id){return stepper.tracks.indexOf(id)<0;}
 function markTrack(id){if(id==null)return;stepper.tracks.push(id);if(stepper.tracks.length>stepper.TK)stepper.tracks.shift();}
@@ -733,6 +733,7 @@ function conductorCheckMovement(setBar){var bl=conductor.blocks;if(!bl||!bl.leng
 async function conductorPlan(){
  if(!started)startAudio();
  var intent=$('cvIntent').value.trim();if(!intent){setStatus('tell the Conductor what you want to hear');return;}
+ if(conductor.on&&conductor.walkOn){cvLog('> '+intent);conductorSteer(intent);$('cvIntent').value='';return;}
  if(aiBusy){setStatus('AI is already working on something');return;}
  $('cvGo').classList.add('on');cvLog('> '+intent);setStatus('Conductor planning...');
  var plan;
@@ -763,7 +764,25 @@ async function conductorPlan(){
  setTimeout(function(){if(conductor.on&&!dj.on)djStart();},600);
  $('cvGo').classList.remove('on');setStatus('Conductor performing -- touch the console to take over');
 }
-function conductorStop(){conductor.on=false;conductor.walkOn=false;stopConductorBeds();stopBreath();stopListener();djStop('conductor stopped');cvLog('set ended -- beds silenced','warn');setStatus('Conductor stopped');}
+// ===== Phase 7: live steering -- a mid-set chat line NUDGES the remaining spine =====
+// Instant + free (no LLM, no re-plan): adjust the remaining blocks' energy, tempo, and
+// the key/recipe bias. The harness is NEVER re-run mid-set (drift + the aiBusy lock).
+function conductorSteer(text){var t=(' '+text+' ').toLowerCase();var msg=[];var d=0;
+ if(/(up|higher|harder|peak|build|hype|bigger|intense|lift|energy|louder|banging)/.test(t))d+=0.15;
+ if(/(down|lower|cool|chill|calm|soft|mellow|ease|relax|ambient|gentle|quiet|breakdown)/.test(t))d-=0.15;
+ if(d!==0){for(var i=conductor.blockIdx;i<conductor.blocks.length;i++){var b=conductor.blocks[i];b.density=Math.max(0,Math.min(1,Math.round((b.density+d)*100)/100));}var cb=conductor.blocks[conductor.blockIdx];if(cb){conductor.densLo=Math.max(0,cb.density-0.12);conductor.densHi=Math.min(1,cb.density+0.12);}msg.push((d>0?'lifting':'easing')+' energy to '+(cb?cb.density:'?'));}
+ var bm=t.match(/(\d{2,3})\s*bpm/);if(bm){var nb=+bm[1];if(nb>=60&&nb<=180){$('bpm').value=nb;$('bpm').onchange();msg.push('bpm '+nb);}}
+ else if(/(faster|speed up|quicker|pick it up)/.test(t)){var f=Math.min(180,bpm()+4);$('bpm').value=f;$('bpm').onchange();msg.push('faster '+f);}
+ else if(/(slower|slow down|pull back)/.test(t)){var sl=Math.max(60,bpm()-4);$('bpm').value=sl;$('bpm').onchange();msg.push('slower '+sl);}
+ if(/(dark|darker|deep|deeper|moody|minor|night)/.test(t)){conductor.keyBias='A';msg.push('darker (minor keys)');}
+ if(/(bright|brighter|happy|uplift|major|sunny|warm)/.test(t)){conductor.keyBias='B';msg.push('brighter (major keys)');}
+ if(/(smooth|blend|gradual|long)/.test(t)){conductor.recipeBias='smooth';msg.push('smoother blends');}
+ if(/(cut|drop|hard|slam|aggressive|slam it|quick)/.test(t)){conductor.recipeBias='hard';msg.push('harder cuts');}
+ if(!msg.length){cvLog('steer: could not read "'+text+'" -- try up/down, faster/slower, darker/brighter, smoother/harder','warn');return;}
+ dj.intents=['steering: '+text.slice(0,60)];
+ cvLog('STEER: '+msg.join(', ')+' -- remaining set nudged, no re-plan','n');setStatus('steered: '+msg.join(', '));
+}
+function conductorStop(){conductor.on=false;conductor.walkOn=false;conductor.keyBias=null;conductor.recipeBias=null;stopConductorBeds();stopBreath();stopListener();djStop('conductor stopped');cvLog('set ended -- beds silenced','warn');setStatus('Conductor stopped');}
 
 // ===== Phase 5: time authority -- Session-led | Breath-led | Listener =====
 var AUTH={mode:'session'};
