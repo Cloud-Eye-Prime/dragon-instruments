@@ -116,6 +116,11 @@ body.embed #cvIntent,body.embed #cvGo,body.embed #cvStop,body.embed #cvLog{displ
   <div class="tbar">
     <button class="tbtn" id="capBtn">+ capture</button>
     <button class="tbtn" id="fileBtn">+ file</button>
+    <button class="tbtn" id="llBtn" title="live looping -- capture bar-length loops from a mic/line and layer them in phase">+ live loop</button>
+    <span id="llRow" style="display:none;align-items:center;gap:6px">
+      <input class="x" id="llBars" type="number" value="4" min="1" max="16" style="width:42px" title="loop length in bars">
+      <button class="tbtn" id="llArm" title="arm -- capture begins on the next bar downbeat">arm loop</button>
+    </span>
     <input class="x" id="urlIn" placeholder="media url" style="width:140px"><button class="tbtn" id="urlBtn">load url</button>
     <button class="tbtn" id="ytBtn">add from YouTube...</button>
     <span id="ytRow" style="display:none;align-items:center;gap:6px;flex-wrap:wrap">
@@ -242,7 +247,7 @@ function syncMasterUI(v){var ms=$('masterStrip');if(ms){var f=ms.querySelector('
 var SCHED_AHEAD=0.15,SCHED_TICK=25,schedTimer=null,nextBeatTime=0;
 function startClock(){if(!started)return;if(schedTimer)return;nextBeatTime=ctx.currentTime+0.06;schedTimer=setInterval(clockScheduler,SCHED_TICK);}
 function stopClock(){if(schedTimer){clearInterval(schedTimer);schedTimer=null;}}
-function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));nextBeatTime+=spb;}}
+function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));if(liveIn.armed&&b===0)beginLoopCapture();nextBeatTime+=spb;}}
 function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio){try{ch.audio.currentTime=0;}catch(e){}}});if(loopBuffer)restartLoop();setStatus('re-synced');}
 
 function handleBus(m){if(!m||!m.type)return;if(m.type==='hello')ensureComposer(m.id,m.name);else if(m.type==='bye')removeChannel(m.id);else if(m.type==='note'){var ch=ensureComposer(m.id,m.name);composerNote(ch,m.note|0,m.vel||100,m.dur||0.4);}}
@@ -345,6 +350,16 @@ function paint(key,v){var c=cache[key];if(!c)return;var lit=Math.round(v*N);for(
 function rms(an,buf){an.getByteTimeDomainData(buf);var s=0;for(var i=0;i<buf.length;i++){var x=(buf[i]-128)/128;s+=x*x;}return Math.min(1,Math.sqrt(s/buf.length)*3.2);}
 
 async function captureSource(){if(!started)startAudio();var st;try{st=await navigator.mediaDevices.getDisplayMedia({video:true,audio:{suppressLocalAudioPlayback:true}});}catch(e){setStatus('capture blocked: '+(e.message||e));return;}var a=st.getAudioTracks();if(!a.length){st.getTracks().forEach(function(t){t.stop();});setStatus('no audio track - tick "share tab audio"');return;}st.getVideoTracks().forEach(function(t){t.stop();});var id='cap-'+Math.random().toString(36).slice(2,7);var src=ctx.createMediaStreamSource(new MediaStream(a));var ch=buildChannel({id:id,type:'capture',name:(a[0].label||'Capture').slice(0,18),color:COLS[order.length%COLS.length],head:src,track:a[0],group:null});a[0].addEventListener('ended',function(){removeChannel(id);});setStatus('captured: '+ch.name);}
+// ===== LIVE LOOP mode: bar-quantized loop capture from a live feed (mic/line) =====
+// Rides the unified clock (Phase 0): capture begins on a bar downbeat and runs exactly
+// N bars, so the loop is seamless + in phase with beds/tracks. The live input is NEVER
+// routed to master -> no feedback; only the captured loops (as channels) are heard.
+var liveIn={stream:null,src:null,proc:null,sink:null,armed:false,bars:4,capturing:false,L:[],R:[],target:0};var loopCount=0;
+async function liveLoopInput(){if(!started)startAudio();if(liveIn.src){var rr=$('llRow');rr.style.display=(rr.style.display==='none'?'inline-flex':'none');return;}var st;try{st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});}catch(e){setStatus('live input denied: '+(e.message||e));return;}liveIn.stream=st;liveIn.src=ctx.createMediaStreamSource(st);liveIn.proc=ctx.createScriptProcessor(4096,2,2);liveIn.sink=ctx.createGain();liveIn.sink.gain.value=0;liveIn.src.connect(liveIn.proc);liveIn.proc.connect(liveIn.sink);liveIn.sink.connect(ctx.destination);liveIn.proc.onaudioprocess=function(e){if(!liveIn.capturing)return;var ib=e.inputBuffer,l=ib.getChannelData(0),r=ib.numberOfChannels>1?ib.getChannelData(1):l;liveIn.L.push(new Float32Array(l));liveIn.R.push(new Float32Array(r));var h=0;for(var i=0;i<liveIn.L.length;i++)h+=liveIn.L[i].length;if(h>=liveIn.target)finishLoopCapture();};$('llBtn').classList.add('on');$('llRow').style.display='inline-flex';setStatus('live input connected -- set bars + arm (headphones advised)');}
+function armLoopCapture(){if(!liveIn.src){liveLoopInput();return;}liveIn.bars=Math.max(1,Math.min(16,parseInt($('llBars').value,10)||4));liveIn.armed=true;$('llArm').classList.add('on');if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');startClock();}setStatus('armed -- capturing '+liveIn.bars+' bars on the next downbeat');}
+function beginLoopCapture(){liveIn.armed=false;liveIn.capturing=true;liveIn.L=[];liveIn.R=[];liveIn.target=Math.round(liveIn.bars*4*(60/bpm())*ctx.sampleRate);$('llArm').classList.remove('on');setStatus('capturing '+liveIn.bars+' bars...');}
+function finishLoopCapture(){if(!liveIn.capturing)return;liveIn.capturing=false;var l=flatten(liveIn.L),r=flatten(liveIn.R);liveIn.L=[];liveIn.R=[];if(!l.length)return;var lat=Math.round((((ctx.baseLatency||0)+(ctx.outputLatency||0)))*ctx.sampleRate);if(lat>0&&lat<l.length){l=l.subarray(lat);r=r.subarray(lat);}var n=Math.min(l.length,liveIn.target||l.length);var buf=ctx.createBuffer(2,n,ctx.sampleRate);buf.getChannelData(0).set(l.subarray(0,n));buf.getChannelData(1).set(r.subarray(0,n));var id='loop-'+Math.random().toString(36).slice(2,6);var node=ctx.createBufferSource();node.buffer=buf;node.loop=true;var ch=buildChannel({id:id,type:'file',name:'Loop '+(++loopCount),color:COLS[order.length%COLS.length],head:node,group:null});node.start();ch.srcBPM=bpm();setStatus('loop layered: '+(n/ctx.sampleRate).toFixed(2)+'s ('+liveIn.bars+' bars) -- looping in phase');}
+
 function addFileChannel(url,name){if(!started)startAudio();var audio=new Audio();audio.crossOrigin='anonymous';audio.src=url;audio.loop=true;var src=ctx.createMediaElementSource(audio);var id='file-'+Math.random().toString(36).slice(2,7);var ch=buildChannel({id:id,type:'file',name:(name||'File').slice(0,18),color:COLS[order.length%COLS.length],head:src,audio:audio,group:null});ch.srcUrl=url;audio.addEventListener('error',function(){setStatus('file/url load error (CORS?) - '+ch.name);});applyRate(ch);audio.play().catch(function(){});setStatus('loaded: '+ch.name+' - set bpm + match');return ch;}
 // Phase 2 ingest: attach a dragon-mix-manifest to a channel -- srcBPM from the
 // analyzed grid (match on), arrival gain from LUFS, sections kept for the
@@ -866,6 +881,8 @@ $('cvIntent').addEventListener('keydown',function(e){if(e.key==='Enter')conducto
 $('startBtn').onclick=startAudio;
 $('capBtn').onclick=captureSource;
 $('fileBtn').onclick=function(){$('fileInput').click();};
+$('llBtn').onclick=liveLoopInput;
+$('llArm').onclick=armLoopCapture;
 $('urlBtn').onclick=loadUrl;
 $('grabBtn').onclick=grabYouTube;
 $('clockBtn').onclick=function(){clockOn=!clockOn;$('clockBtn').classList.toggle('on',clockOn);if(clockOn){if(!started)startAudio();startClock();}else stopClock();};
