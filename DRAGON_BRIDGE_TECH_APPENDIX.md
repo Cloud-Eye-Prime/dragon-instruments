@@ -173,3 +173,59 @@ skipped). `DJ_SYS` carries 3 few-shot exemplars (craft, restraint, section-aware
 - `public/conductor.html` -- the split shell (left chat / right mixer iframe, postMessage).
 - `public/index.html` -- 3-tile landing.
 - `deploy/grabber/app.py` -- the grabber (separate repo/service).
+
+---
+
+## 18. Addendum (2026-07-07): real-loop lead, voice, search-ranking, length-on-command
+
+Post-original-appendix work. The through-line: the oscillator synth is demoted to ambience;
+the musical lead is now REAL curated audio; search is ranked; sets can be any length on command.
+
+### 18.1 AI instrument voice (composerNote) -- refined, and demoted to ambience
+`composerNote(ch,midi,vel,dur,when)` was a single raw oscillator with an instant-onset gain
+(a click per note) and no filter -- it read as "video-game synth." Now it is a proper voice:
+soft ADSR (no click), a per-note lowpass that opens on attack then eases (warmth + movement),
+a sub sine for body, and REAL synthesis per timbre -- fm = sine carrier + decaying modulator,
+pluck = tri+saw + fast filter decay, saw = detuned supersaw pair + sub, square/reed = square
+softened by a triangle. BUG fixed: timbres 'saw'/'fm'/'pluck'/'am' are INVALID OscillatorType
+values (only sine/square/sawtooth/triangle are legal) -- they threw, so those styles' loops were
+silently failing. Per Architect direction the oscillator voice is now for **ambient beds only**,
+never the lead.
+
+### 18.2 Real-loop LEAD mode (`lead`, OPT-IN) -- the melodic lead is real audio
+`lead={on,pool,every,startBar,chId,phraseCount}`. The lead is a melodic layer built from REAL
+recorded loops, not oscillators -- the DJ engine applied to a topline:
+- `leadStart(intent)` grabs short real phrases via the grabber, using per-genre MUSICAL queries
+  (`LEAD_QUERIES`: raga->sitar/bansuri, jazz->sax lick, deep house->soulful vocal chop, trance->
+  pluck/arp, dubstep->vocal chop/future-bass lead, ambient->pad, ...; generic fallback).
+- `leadLoad()` loads a pool loop as a channel, **key-shifts it to the session key + tempo-locks**
+  via `syncStretch` (SoundTouch, `keyDeltaSemitones`, bounded +/-6 st) -- not tempo-only -- sits
+  it UNDER the main track via `leadFader()` (rides the current block density 0.26..0.54 + jitter,
+  soft 1.2s entrance), and places it in the mix (mild high-cut filt 0.42 + rev 0.14).
+- `leadPhrase()` (scheduler, every `lead.every` bars = the genre phrase, min 16) rotates the loop
+  and RESTS every 3rd phrase so the lead BREATHES like a real topline instead of droning.
+- OPT-IN: `#llLead` toggle; the Conductor engages it only when the chat asks for a
+  lead/melody/solo/riff. Default stays DJ-mixing real audio; oscillator synth = ambience only.
+
+### 18.3 Grabber: ranked search (search wisely)
+`deploy/grabber/app.py` q-lane now RANKS N candidates instead of `ytsearch1`. `_flat_search`
+(yt-dlp `--flat-playlist -J`, no download) -> `_score` = log(views) + duration-fit-per-kind
+(`_duration_band`: loop 4-30s / track 90-420s / set 20-90min) + AI-slop penalty (suno/udio/aiva/
+"ai generated"/...) + non-music penalty (reaction/interview/tutorial/...) -> grabs the BEST.
+New params `kind=`(loop|track|set|inferred via `_infer_kind`) + `rank=`; response gains
+`picked{views,duration,uploader,considered,kind}`. Legacy `url=`/`rank=0`/`/audio`/`/health`
+unchanged. NOTE: YouTube exposes views/duration/uploader via yt-dlp but NO machine
+AI-generated flag -- that disclosure is a self-reported UI label, so slop is heuristic-only.
+The mixer passes `kind=track` for conductor tracks and `kind=loop` for lead loops.
+
+### 18.4 Length on command
+`parseLength(t)` reads a target from the chat ("45 min" / "1 hour" / "90 min" / "half an hour",
+capped 90). `conductorPlan` prompts ONCE if no length is given (`conductor.pendingIntent`), then
+defaults to **24 min** on the reply (or a bare number). The spine is SCALED to fill
+`conductor.targetSec` at the session bpm (block bars * targetBars/sumBars), and the set ENDS at
+the target via `conductorStop`. So the Conductor makes a mix of any length under 90 minutes on
+command.
+
+### 18.5 Access
+The grabber `/ai` relay and beta-gated features use header `X-Dragon-Beta` = the `BETA_TOKEN`
+Railway var (the shareable beta code held server-side; never the OpenRouter/Anthropic key).
