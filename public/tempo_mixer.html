@@ -695,19 +695,19 @@ function camelotToKeyName(code){var k=CAMELOT_TO_KEY[String(code).toUpperCase()]
 // diagonal=70, whole-tone=60, semitone-boost=55, decaying to clash). Ranks candidates.
 function keyScore(a,b){var ca=camelotParse(a),cb=camelotParse(b);if(!ca||!cb)return 0;var d=Math.min((ca.n-cb.n+12)%12,(cb.n-ca.n+12)%12);var flip=ca.L!==cb.L;if(d===0&&!flip)return 100;if(d===0&&flip)return 90;if(d===1&&!flip)return 85;if(d===1&&flip)return 70;if(d===2&&!flip)return 60;if(d===5&&!flip)return 55;if(d===2&&flip)return 35;return Math.max(0,40-d*6);}
 var GENRES=[
- {n:'melodic dubstep',k:['melodic dubstep'],bpm:[140,150],mode:'B',ph:16,e:[0.4,0.85,0.4],tr:['echo_tail','filter_fade']},
- {n:'future bass',k:['future bass'],bpm:[140,160],mode:'B',ph:16,e:[0.4,0.85,0.4],tr:['double_drop','filter_fade']},
- {n:'riddim',k:['riddim'],bpm:[138,142],mode:'A',ph:8,e:[0.5,0.9,0.4],tr:['bass_swap','loop_roll']},
- {n:'brostep',k:['brostep'],bpm:[138,142],mode:'A',ph:16,e:[0.6,0.95,0.5],tr:['double_drop','bass_swap']},
- {n:'tearout',k:['tearout'],bpm:[140,150],mode:'A',ph:8,e:[0.7,0.98,0.6],tr:['bass_swap','backspin']},
- {n:'dubstep',k:['dubstep','dub step'],bpm:[138,142],mode:'A',ph:16,e:[0.5,0.9,0.4],tr:['double_drop','bass_swap','half_time']},
- {n:'drum and bass',k:['drum and bass','drum n bass','dnb','jungle'],bpm:[170,178],mode:'A',ph:4,e:[0.6,0.95,0.5],tr:['loop_roll','backspin','bass_swap']},
+ {n:'melodic dubstep',k:['melodic dubstep'],bpm:[140,150],mode:'B',ph:16,e:[0.4,0.85,0.4],tr:['echo_tail','filter_fade'],half:1},
+ {n:'future bass',k:['future bass'],bpm:[140,160],mode:'B',ph:16,e:[0.4,0.85,0.4],tr:['double_drop','filter_fade'],half:1},
+ {n:'riddim',k:['riddim'],bpm:[138,142],mode:'A',ph:8,e:[0.5,0.9,0.4],tr:['bass_swap','loop_roll'],half:1},
+ {n:'brostep',k:['brostep'],bpm:[138,142],mode:'A',ph:16,e:[0.6,0.95,0.5],tr:['double_drop','bass_swap'],half:1},
+ {n:'tearout',k:['tearout'],bpm:[140,150],mode:'A',ph:8,e:[0.7,0.98,0.6],tr:['bass_swap','backspin'],half:1},
+ {n:'dubstep',k:['dubstep','dub step'],bpm:[138,142],mode:'A',ph:16,e:[0.5,0.9,0.4],tr:['double_drop','bass_swap','half_time'],half:1},
+ {n:'drum and bass',k:['drum and bass','drum n bass','dnb','jungle'],bpm:[170,178],mode:'A',ph:4,e:[0.6,0.95,0.5],tr:['loop_roll','backspin','bass_swap'],half:1},
  {n:'deep house',k:['deep house'],bpm:[110,124],mode:'A',ph:32,e:[0.3,0.7,0.3],tr:['echo_tail','filter_fade']},
  {n:'tech house',k:['tech house'],bpm:[122,128],mode:'A',ph:16,e:[0.5,0.8,0.5],tr:['bass_swap','filter_fade']},
  {n:'progressive house',k:['progressive house','prog house'],bpm:[124,134],mode:'B',ph:32,e:[0.4,0.9,0.4],tr:['echo_tail','double_drop']},
  {n:'minimal techno',k:['minimal techno','minimal'],bpm:[120,132],mode:'A',ph:8,e:[0.4,0.8,0.3],tr:['loop_roll','bass_swap']},
  {n:'techno',k:['techno'],bpm:[125,135],mode:'A',ph:8,e:[0.5,0.9,0.4],tr:['loop_roll','bass_swap','backspin']},
- {n:'house',k:['house'],bpm:[120,127],mode:'B',ph:16,e:[0.4,0.8,0.4],tr:['bass_swap','filter_fade','double_drop']},
+ {n:'house',k:['house'],bpm:[115,132],mode:'A',ph:16,e:[0.4,0.8,0.4],tr:['bass_swap','filter_fade','double_drop']},
  {n:'trance',k:['trance'],bpm:[132,142],mode:'B',ph:32,e:[0.5,0.95,0.5],tr:['echo_tail','filter_fade']},
  {n:'electro swing',k:['electro swing','swing glitch','swing-glitch','glitch swing'],bpm:[110,128],mode:'B',ph:16,e:[0.5,0.85,0.5],tr:['filter_fade','loop_roll']},
  {n:'glitch hop',k:['glitch hop','glitch-hop','glitch'],bpm:[105,115],mode:'A',ph:8,e:[0.5,0.8,0.4],tr:['loop_roll','bass_swap']},
@@ -720,7 +720,7 @@ var GENRES=[
  {n:'ambient',k:['ambient','drone'],bpm:[55,90],mode:'B',ph:64,e:[0.1,0.4,0.1],tr:['echo_tail']},
  {n:'prog rock',k:['prog rock','progressive rock','prog-rock'],bpm:[70,140],mode:'A',ph:16,e:[0.4,0.85,0.4],tr:['filter_fade','echo_tail']},
  {n:'psychedelic',k:['psychedelic','psych rock','psychedelia'],bpm:[90,130],mode:'B',ph:16,e:[0.3,0.7,0.3],tr:['echo_tail','filter_fade']},
- {n:'rockabilly',k:['rockabilly','elvis','rock and roll','rock n roll','fifties','50s'],bpm:[140,180],mode:'B',ph:12,e:[0.6,0.85,0.5],tr:['bass_swap','backspin']},
+ {n:'rockabilly',k:['rockabilly','elvis','rock and roll','rock n roll','fifties','50s'],bpm:[105,160],mode:'B',ph:12,e:[0.6,0.85,0.5],tr:['bass_swap','backspin']},
  {n:'classic rock',k:['classic rock','rock'],bpm:[110,140],mode:'B',ph:16,e:[0.5,0.85,0.5],tr:['filter_fade','bass_swap']},
  {n:'funk',k:['funk'],bpm:[95,120],mode:'A',ph:16,e:[0.6,0.85,0.6],tr:['bass_swap','filter_fade']},
  {n:'disco',k:['disco'],bpm:[110,130],mode:'B',ph:16,e:[0.6,0.9,0.6],tr:['bass_swap','filter_fade']},
@@ -730,7 +730,7 @@ var GENRES=[
  {n:'afrobeat',k:['afrobeat','afro'],bpm:[100,130],mode:'B',ph:16,e:[0.5,0.85,0.5],tr:['bass_swap','filter_fade']},
  {n:'reggae',k:['reggae','dub reggae','dancehall'],bpm:[60,90],mode:'A',ph:16,e:[0.3,0.6,0.3],tr:['echo_tail','bass_swap']},
  {n:'latin',k:['latin','salsa','reggaeton','cumbia'],bpm:[90,130],mode:'B',ph:16,e:[0.5,0.85,0.5],tr:['bass_swap','filter_fade']},
- {n:'hip hop',k:['hip hop','hip-hop','hiphop','rap','trap'],bpm:[80,100],mode:'A',ph:16,e:[0.4,0.8,0.4],tr:['bass_swap','backspin']},
+ {n:'hip hop',k:['hip hop','hip-hop','hiphop','rap','trap'],bpm:[80,100],mode:'A',ph:16,e:[0.4,0.8,0.4],tr:['bass_swap','backspin'],half:1},
  {n:'lo-fi',k:['lo-fi','lofi','lo fi'],bpm:[70,90],mode:'A',ph:16,e:[0.2,0.5,0.2],tr:['echo_tail']},
  {n:'cinematic',k:['cinematic','orchestral','soundtrack','epic'],bpm:[60,110],mode:'A',ph:16,e:[0.2,0.8,0.2],tr:['echo_tail']}
 ];
@@ -809,7 +809,7 @@ async function conductorPlan(){
  if(!conductor.seed)conductor.seed=(Math.floor(performance.now()*1000))>>>0;
  stepperReset(keyNameToCamelot(plan.session_key)||'8A',conductor.seed);conductor.walkOn=true;conductor.walkStartBeat=beatCount;SESSION.auto=false;
  cvLog('harmonic walk armed from '+(keyNameToCamelot(plan.session_key)||'8A')+' -- key steps every '+(conductor.blockBeats/4)+' bars','n');
- conductor.genres=genresIn(intent);if(conductor.genres.length){var _lo=Math.min.apply(null,conductor.genres.map(function(g){return g.bpm[0];}));var _hi=Math.max.apply(null,conductor.genres.map(function(g){return g.bpm[1];}));var _g0=conductor.genres[0];if(_g0.mode)conductor.keyBias=_g0.mode;var _cur=bpm();if(_cur<_lo||_cur>_hi){var _nb=Math.round((_lo+_hi)/2);$('bpm').value=_nb;$('bpmReadout').textContent=_nb;refreshRates();}cvLog('genre: '+conductor.genres.map(function(g){return g.n;}).join(' x ')+(conductor.genres.length>1?' (BLEND)':'')+' -- '+_lo+'-'+_hi+' bpm, '+(_g0.mode==='A'?'minor':_g0.mode==='B'?'major':'either')+' lean','n');}
+ conductor.genres=genresIn(intent);if(conductor.genres.length){var _lo=Math.min.apply(null,conductor.genres.map(function(g){return g.bpm[0];}));var _hi=Math.max.apply(null,conductor.genres.map(function(g){return g.bpm[1];}));var _g0=conductor.genres[0];if(_g0.mode)conductor.keyBias=_g0.mode;var _cur=bpm();if(_cur<_lo||_cur>_hi){var _nb=Math.round((_lo+_hi)/2);$('bpm').value=_nb;$('bpmReadout').textContent=_nb;refreshRates();}var _ht=(conductor.genres.length>1&&(_hi-_lo>30)&&conductor.genres.some(function(g){return g.half;}))?' -- half-time bridge (a drop can sit at 1/2 tempo under the slower genre)':'';cvLog('genre: '+conductor.genres.map(function(g){return g.n;}).join(' x ')+(conductor.genres.length>1?' (BLEND)':'')+' -- '+_lo+'-'+_hi+' bpm, '+(_g0.mode==='A'?'minor':_g0.mode==='B'?'major':'either')+' lean'+_ht,'n');}
  var sb=parseInt(plan.session_bpm,10);if(sb>=60&&sb<=180){$('bpm').value=sb;$('bpmReadout').textContent=sb;refreshRates();if(clockOn)startClock();}
  conductor.arc=Array.isArray(plan.arc)?plan.arc:[];
  if(plan.note)cvLog(plan.note,'n');
