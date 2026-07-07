@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dragon Bridge -- Conductor</title>
+<meta name="robots" content="noindex">
+<style>
+  /* Palette + chat metrics lifted VERBATIM from the S26 webui (hushmaw INDEX_HTML). */
+  :root{--bg:#0d1117;--panel:#161b22;--ink:#e6edf3;--mut:#8b949e;--line:#30363d;
+        --accent:#39d0c8;--accent2:#7ee787;--you:#1f6feb33;--dragon:#161b22;--glow:#e6edf3;
+        --warn:#e3b341}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font:16px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    overflow:hidden}
+  button{font-family:inherit;cursor:pointer;color:inherit}
+  input,textarea{font-family:inherit;color:inherit}
+
+  /* -- sacred-calc structure: app flex-column, main grid, responsive tabs -- */
+  .app{display:flex;flex-direction:column;height:100dvh}
+  header.top{display:flex;align-items:center;gap:.6rem;padding:.55rem 1rem;
+    border-bottom:1px solid var(--line);background:rgba(13,17,23,.7);
+    -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);flex:0 0 auto}
+  header.top h1{font-size:1.05rem;font-weight:600;letter-spacing:.01em;margin:0}
+  header.top .sub{font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin-left:.15rem}
+  header.top .spacer{flex:1}
+  header.top a.back{font-size:.74rem;letter-spacing:.04em;color:var(--mut);
+    text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:.4rem .7rem}
+  header.top a.back:hover{color:var(--ink);border-color:var(--accent)}
+
+  .main{flex:1;display:grid;grid-template-columns:minmax(360px,440px) 1fr;min-height:0}
+
+  /* LEFT: the 440px webui chat column, verbatim metrics */
+  .chat{display:flex;flex-direction:column;min-height:0;background:var(--panel);
+    border-right:1px solid var(--line)}
+  #log{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:90%;padding:11px 14px;border-radius:16px;white-space:pre-wrap;
+    word-wrap:break-word;font-size:15px;line-height:1.45}
+  .you{align-self:flex-end;background:var(--you);border:1px solid #1f6feb55}
+  .dragon{align-self:flex-start;background:var(--dragon);border:1px solid var(--line);
+    max-width:95%;font-family:"Noto Serif",Georgia,"Times New Roman",serif;
+    line-height:1.5;letter-spacing:.1px}
+  .msg.n{border-color:rgba(57,208,200,.45);color:var(--accent2)}
+  .msg.warn{border-color:rgba(227,179,65,.5);color:var(--warn)}
+  #statusline{padding:4px 16px 6px;font-size:12px;color:var(--mut);min-height:1.1rem;
+    border-top:1px solid var(--line)}
+  form{display:flex;gap:8px;padding:10px 12px 4px;border-top:1px solid var(--line);
+    align-items:flex-end}
+  textarea{flex:1;resize:none;background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:inherit;max-height:120px}
+  textarea:focus{outline:none;border-color:var(--accent)}
+  button.send{background:var(--accent);color:#04121a;border:0;border-radius:50%;
+    width:42px;height:42px;flex:0 0 auto;font-size:18px;font-weight:700;
+    display:flex;align-items:center;justify-content:center}
+  button.send:disabled{opacity:.45;cursor:not-allowed}
+
+  /* thin tools strip below the composer */
+  .tools{display:flex;gap:6px;padding:6px 12px 9px;align-items:center;flex-wrap:wrap}
+  .tools input.beta{flex:1;min-width:120px;background:var(--bg);color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px}
+  .tools input.beta:focus{outline:none;border-color:var(--accent)}
+  .stopbtn{font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);
+    background:transparent;color:var(--mut)}
+  .stopbtn:hover{color:#f85149;border-color:#f85149}
+  .chips{display:flex;gap:4px;padding:0 12px 8px;flex-wrap:wrap}
+  .chip{font-size:12px;padding:5px 11px;border-radius:999px;border:1px solid var(--line);
+    background:transparent;color:var(--mut);user-select:none}
+  .chip.on{color:#04121a;background:var(--accent);border-color:var(--accent);font-weight:600}
+
+  /* RIGHT: the mixer artifact */
+  .artifact{position:relative;min-height:0;border-left:1px solid var(--line);
+    background:var(--bg);display:flex}
+  .artifact iframe{width:100%;height:100%;border:0;display:block}
+
+  /* responsive: single active panel + bottom tab bar (sacred-calc pattern) */
+  .mtabs{display:none}
+  @media(max-width:860px){
+    .main{grid-template-columns:1fr;grid-template-rows:1fr}
+    .main>section{display:none}
+    .main>section.active{display:flex}
+    .chat.active{display:flex}
+    .artifact.active{display:flex}
+    .chat{border-right:none}
+    .artifact{border-left:none}
+    .mtabs{display:flex;flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel)}
+    .mtabs button{flex:1;padding:.65rem .5rem calc(.65rem + env(safe-area-inset-bottom,0px));
+      font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);
+      background:transparent;border:0;border-top:2px solid transparent}
+    .mtabs button.on{color:var(--accent);border-top-color:var(--accent)}
+    .msg{max-width:100%}
+    .chat textarea{font-size:16px}  /* stops iOS focus-zoom */
+  }
+</style></head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>DRAGON BRIDGE</h1><span class="sub">Conductor</span>
+    <span class="spacer"></span>
+    <a class="back" href="./index.html">&#8592; instruments</a>
+  </header>
+  <div class="main">
+    <!-- LEFT: the webui chat column -->
+    <section class="chat active" id="chatPanel">
+      <div id="log"></div>
+      <div id="statusline"></div>
+      <form id="f">
+        <textarea id="t" rows="1" placeholder="Name artists, songs, moods..." autocomplete="off"></textarea>
+        <button type="button" class="send" id="s" title="Send" disabled>&#10148;</button>
+      </form>
+      <div class="tools">
+        <input type="password" class="beta" id="beta" placeholder="beta code" autocomplete="off">
+        <button type="button" class="stopbtn" id="stop">stop set</button>
+      </div>
+      <div class="chips">
+        <span class="chip on" id="chSession" data-mode="session">Session</span>
+        <span class="chip" id="chBreath" data-mode="breath">Breath</span>
+        <span class="chip" id="chListener" data-mode="listener">Listener</span>
+      </div>
+    </section>
+    <!-- RIGHT: the mixer as living artifact -->
+    <section class="artifact" id="artifactPanel">
+      <iframe id="mix" src="./tempo_mixer.html?embed=1" title="Dragon Bridge mixer"
+        style="width:100%;height:100%;border:0;display:block"></iframe>
+    </section>
+  </div>
+  <nav class="mtabs">
+    <button id="tabChat" class="on">Chat</button>
+    <button id="tabMix">Mixer</button>
+  </nav>
+</div>
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id);};
+var ORIGIN=location.origin;
+var BETA_KEY="dragonbridge_beta";
+
+// -- log helpers (webui bubble style) --
+function bubble(text,cls){
+  var d=document.createElement("div");
+  d.className="msg dragon"+(cls?(" "+cls):"");
+  d.textContent=text;
+  $("log").appendChild(d);
+  $("log").scrollTop=$("log").scrollHeight;
+  return d;
+}
+function youBubble(text){
+  var d=document.createElement("div");
+  d.className="msg you";
+  d.textContent=text;
+  $("log").appendChild(d);
+  $("log").scrollTop=$("log").scrollHeight;
+  return d;
+}
+function setStatus(text){ $("statusline").textContent=text||""; }
+
+// -- greeting --
+var greetEl=bubble(
+  "This is the Conductor. Name artists, songs, or moods and I will acquire the audio "+
+  "and live-mix a set in the mixer beside you -- building, layering, and blending the "+
+  "tracks as a continuous performance. Tell me where to begin.");
+
+// -- postMessage to the iframe mixer --
+function toMixer(msg){
+  try{
+    var fr=$("mix");
+    if(fr&&fr.contentWindow){ fr.contentWindow.postMessage(msg,ORIGIN); }
+  }catch(e){}
+}
+
+// -- send an intent (a conduct) --
+function betaCode(){ return ($("beta").value||"").trim(); }
+function send(){
+  var el=$("t"),text=(el.value||"").trim();
+  if(!text)return;
+  var b=betaCode();
+  try{ if(b) localStorage.setItem(BETA_KEY,b); }catch(e){}
+  youBubble(text);
+  el.value=""; el.style.height="auto"; el.focus();
+  toMixer({source:"dragon-shell",type:"conduct",intent:text,beta:b});
+}
+
+// -- authority chips --
+function setAuthorityUI(mode){
+  var map={session:"chSession",breath:"chBreath",listener:"chListener"};
+  ["chSession","chBreath","chListener"].forEach(function(id){
+    $(id).classList.toggle("on", map[mode]===id);
+  });
+}
+function chooseAuthority(mode){
+  setAuthorityUI(mode);
+  toMixer({source:"dragon-shell",type:"authority",mode:mode});
+}
+["chSession","chBreath","chListener"].forEach(function(id){
+  $(id).addEventListener("click",function(){ chooseAuthority($(id).getAttribute("data-mode")); });
+});
+
+// -- stop set --
+$("stop").addEventListener("click",function(){
+  toMixer({source:"dragon-shell",type:"stop"});
+});
+
+// -- inbound messages from the mixer --
+window.addEventListener("message",function(e){
+  var d=e.data;
+  if(!d||d.source!=="dragon-mixer")return;  // ignore any non-peer message
+  if(d.type==="ready"){
+    $("s").disabled=false;
+    if(!d.ai && !d.beta){
+      greetEl.textContent+="\n\nNote: an Anthropic key (set in the mixer) or a beta code "+
+        "is needed for the AI to perform the set.";
+    }
+  }else if(d.type==="narrate"){
+    var cls=(d.cls==="warn")?"warn":(d.cls==="n")?"n":"";
+    bubble(String(d.line||""),cls);
+  }else if(d.type==="status"){
+    setStatus(String(d.text||""));
+  }else if(d.type==="authority"){
+    if(d.mode) setAuthorityUI(d.mode);
+  }
+},false);
+
+// -- iframe load handshake --
+$("mix").addEventListener("load",function(){
+  toMixer({source:"dragon-shell",type:"hello"});
+},false);
+
+// -- composer wiring --
+$("s").addEventListener("click",send);
+$("t").addEventListener("keydown",function(e){
+  if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); }
+});
+$("t").addEventListener("input",function(){
+  this.style.height="auto";
+  this.style.height=Math.min(this.scrollHeight,120)+"px";
+});
+
+// -- seed the beta field from storage --
+try{ var sb=localStorage.getItem(BETA_KEY); if(sb) $("beta").value=sb; }catch(e){}
+
+// -- mobile tabs (inert on desktop; CSS only shows the bar <=860px) --
+function setTab(t){
+  $("chatPanel").classList.toggle("active",t==="chat");
+  $("artifactPanel").classList.toggle("active",t==="mix");
+  $("tabChat").classList.toggle("on",t==="chat");
+  $("tabMix").classList.toggle("on",t==="mix");
+}
+$("tabChat").addEventListener("click",function(){ setTab("chat"); });
+$("tabMix").addEventListener("click",function(){ setTab("mix"); });
+setTab("chat");
+})();
+</script>
+</body>
+</html>
