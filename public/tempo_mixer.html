@@ -439,6 +439,7 @@ function aiKey(){return ($('aiKey').value||'').trim();}
 function aiModelId(){return ($('aiModel').value||'').trim()||'claude-sonnet-4-6';}
 function aiKeyUI(){var has=!!aiKey();$('aiKeyBtn').textContent=has?'key set':'add key';$('aiKeyBtn').classList.toggle('on',has);}
 function aiBeta(){try{return (localStorage.getItem('dragonbridge_beta')||'').trim();}catch(e){return '';}}
+function aiModelPick(){try{return (localStorage.getItem('dragonbridge_model')||'').trim();}catch(e){return '';}}
 function aiNeedKey(){$('aiKeyRow').style.display='inline-flex';setStatus('AI unavailable -- paste an Anthropic key, or enter a beta code (the house key answers)');}
 function aiNeedBeta(){$('aiKeyRow').style.display='inline-flex';setStatus('private beta -- enter your beta code in the AI bar');}
 (function initAiKey(){try{var k=localStorage.getItem('dragonbridge_ant_key');if(k)$('aiKey').value=k;var m=localStorage.getItem('dragonbridge_ant_model');if(m)$('aiModel').value=m;var b=localStorage.getItem('dragonbridge_beta');if(b)$('aiBeta').value=b;}catch(e){}aiKeyUI();})();
@@ -463,7 +464,7 @@ async function aiChat(sys,usr,maxTok){
    var base=$('grabBase').value.trim().replace(/[\/]+$/,'');
    var hdrs={'Content-Type':'application/json'};
    var bt=aiBeta();if(bt)hdrs['X-Dragon-Beta']=bt;
-   res=await fetch(base+'/ai',{method:'POST',headers:hdrs,body:JSON.stringify({system:sys,user:usr,max_tokens:maxTok||1024})});
+   res=await fetch(base+'/ai',{method:'POST',headers:hdrs,body:JSON.stringify({system:sys,user:usr,max_tokens:maxTok||1024,model:aiModelPick()})});
    data=await res.json().catch(function(){return {};});
    if(res.status===401){aiNeedBeta();throw new Error('no-key');}
    if(res.status===503){aiNeedKey();throw new Error('no-key');}
@@ -666,7 +667,7 @@ function conductorBeat(){
 }
 function startConductorBeds(){if(conductor.timer)clearInterval(conductor.timer);conductor.step=0;conductor.timer=setInterval(conductorBeat,Math.max(60,60000/bpm()/2));}
 function stopConductorBeds(){if(conductor.timer){clearInterval(conductor.timer);conductor.timer=null;}}
-var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (you MAY name real artists/songs/albums). synth_beds = 1-4 rights-clean internal voices; role one of bass,pad,drone,lead,arp; key = a short unique id. arc = 2-5 phases describing the set shape. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener.';
+var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (you MAY name real artists/songs/albums). synth_beds = 1-4 rights-clean internal voices; role one of bass,pad,drone,lead,arp; key = a short unique id. arc = 2-5 phases describing the set shape. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener. EXAMPLE -- Intent: cinematic build in A minor at 120 bpm, Olafur Arnalds and Hans Zimmer, three movements. You return EXACTLY (no prose, no fences): {"queries":["Olafur Arnalds re:member","Hans Zimmer Time"],"synth_beds":[{"key":"drone","role":"drone"},{"key":"pad","role":"pad"}],"arc":[{"phase":"intro","bars":16,"focus":"lone drone, sparse"},{"phase":"build","bars":32,"focus":"layer strings, rising filter"},{"phase":"peak","bars":16,"focus":"full harmony then release"}],"session_key":"A:minor","session_bpm":120,"note":"Three movements, from a single breath to full sky."} Rules the example shows: honor the named bpm and key EXACTLY; the arc has one phase per movement named; the note is one warm line, never inside the JSON fences.';
 async function conductorPlan(){
  if(!started)startAudio();
  var intent=$('cvIntent').value.trim();if(!intent){setStatus('tell the Conductor what you want to hear');return;}
@@ -808,7 +809,8 @@ window.addEventListener('message',function(e){var d=e.data;if(!d||d.source!=='dr
  if(d.type==='hello'){toShell('ready',{ai:!!aiKey(),beta:!!aiBeta()});}
  else if(d.type==='conduct'){if(d.beta){try{localStorage.setItem('dragonbridge_beta',String(d.beta));}catch(e2){}var bi=$('aiBeta');if(bi)bi.value=String(d.beta);}$('cvIntent').value=String(d.intent||'');conductorPlan();}
  else if(d.type==='stop'){conductorStop();}
- else if(d.type==='authority'){setAuthority(String(d.mode||'session'));}});
+ else if(d.type==='authority'){setAuthority(String(d.mode||'session'));}
+ else if(d.type==='model'){try{localStorage.setItem('dragonbridge_model',String(d.model||''));}catch(e3){}setStatus('model -> '+(d.model||'default'));}});
 
 if(EMBED){document.body.classList.add('embed');setConductorMode(true);toShell('ready',{ai:!!aiKey(),beta:!!aiBeta()});}
 </script></body></html>

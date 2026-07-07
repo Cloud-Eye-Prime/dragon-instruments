@@ -58,6 +58,8 @@
 
   /* thin tools strip below the composer */
   .tools{display:flex;gap:6px;padding:6px 12px 9px;align-items:center;flex-wrap:wrap}
+.modelsel{background:var(--panel);color:var(--mut);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font:12px inherit;max-width:190px}
+.modelsel:focus{outline:none;border-color:var(--accent);color:var(--ink)}
   .tools input.beta{flex:1;min-width:120px;background:var(--bg);color:var(--ink);
     border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px}
   .tools input.beta:focus{outline:none;border-color:var(--accent)}
@@ -111,6 +113,7 @@
       </form>
       <div class="tools">
         <input type="password" class="beta" id="beta" placeholder="beta code" autocomplete="off">
+        <select class="modelsel" id="modelsel" title="AI model -- the house key answers with whichever you pick"><option value="">model: default</option></select>
         <button type="button" class="stopbtn" id="stop">stop set</button>
       </div>
       <div class="chips">
@@ -170,6 +173,36 @@ function toMixer(msg){
   }catch(e){}
 }
 
+// -- model dropdown: populate from the grabber's allowlist (/diag ai_models),
+// persist the pick, and push it to the mixer (which sends it on every /ai call) --
+var GRABBER="https://dragon-grabber-production.up.railway.app";
+var MODEL_KEY="dragonbridge_model";
+function shortModel(m){ return m.indexOf("/")>=0 ? m.split("/")[1] : m; }
+function currentModel(){ try{ return (localStorage.getItem(MODEL_KEY)||"").trim(); }catch(e){ return ""; } }
+function pushModel(){ toMixer({source:"dragon-shell",type:"model",model:currentModel()}); }
+function initModels(){
+  var sel=$("modelsel"); if(!sel) return;
+  fetch(GRABBER+"/diag").then(function(r){return r.json();}).then(function(d){
+    var list=(d&&d.ai_models)||[]; var def=(d&&d.ai_model)||"";
+    if(!list.length) return;
+    var saved=currentModel();
+    sel.innerHTML="";
+    list.forEach(function(m){
+      var o=document.createElement("option");
+      o.value=m; o.textContent=shortModel(m)+(m===def?"  (default)":"");
+      sel.appendChild(o);
+    });
+    sel.value=(saved && list.indexOf(saved)>=0)?saved:def;
+    if(sel.value){ try{ localStorage.setItem(MODEL_KEY,sel.value); }catch(e){} }
+    pushModel();
+  }).catch(function(){ /* dropdown stays "default"; the relay uses AI_MODEL */ });
+  sel.addEventListener("change",function(){
+    try{ localStorage.setItem(MODEL_KEY,sel.value); }catch(e){}
+    pushModel();
+    setStatus("model -> "+(shortModel(sel.value)||"default"));
+  });
+}
+
 // -- send an intent (a conduct) --
 function betaCode(){ return ($("beta").value||"").trim(); }
 function send(){
@@ -208,6 +241,7 @@ window.addEventListener("message",function(e){
   if(!d||d.source!=="dragon-mixer")return;  // ignore any non-peer message
   if(d.type==="ready"){
     $("s").disabled=false;
+    pushModel();
     if(!d.ai && !d.beta){
       greetEl.textContent+="\n\nNote: an Anthropic key (set in the mixer) or a beta code "+
         "is needed for the AI to perform the set.";
@@ -226,6 +260,9 @@ window.addEventListener("message",function(e){
 $("mix").addEventListener("load",function(){
   toMixer({source:"dragon-shell",type:"hello"});
 },false);
+
+// -- populate the model dropdown from the grabber allowlist --
+initModels();
 
 // -- composer wiring --
 $("s").addEventListener("click",send);
