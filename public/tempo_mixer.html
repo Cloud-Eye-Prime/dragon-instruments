@@ -823,7 +823,7 @@ function scheduleTransition(outId,inId,technique,startBar){
 // the grabber keyword lane when live and degrades honestly when it is not
 // (the grabber q=/analyze= lane is Phase 1 of the plan, deploy-gated).
 var conductorMode=false;
-var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,keyBias:null,recipeBias:null,energyDir:0,genres:[],beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[],nowPlaying:null,halfBridge:false};
+var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,keyBias:null,recipeBias:null,energyDir:0,genres:[],beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[],nowPlaying:null,halfBridge:false,userLinks:false};
 function conductorAdvanceKey(){var code=nextKey();var kk=CAMELOT_TO_KEY[code];if(!kk)return;setSessionKey(kk.pc,kk.scale);cvLog('key walk -> '+code+' ('+PITCHES[kk.pc]+' '+kk.scale+')','n');}
 var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],lydian:[0,2,4,6,7,9,11],locrian:[0,1,3,5,6,8,10],pentatonic:[0,2,4,7,9],pentMajor:[0,2,4,7,9],pentMinor:[0,3,5,7,10],blues:[0,3,5,6,7,10],bhairav:[0,1,4,5,7,8,11],yaman:[0,2,4,6,7,9,11],bhairavi:[0,1,3,5,7,8,10],kafi:[0,2,3,5,7,9,10]};
 var NOTEBASE={c:0,'c#':1,db:1,d:2,'d#':3,eb:3,e:4,f:5,'f#':6,gb:6,g:7,'g#':8,ab:8,a:9,'a#':10,bb:10,b:11};
@@ -941,7 +941,7 @@ function conductorStep(when){
 }
 function startConductorBeds(){conductor.step=0;conductor.bedsOn=true;reseedBeds(conductor.seed);if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');}startClock();}
 function stopConductorBeds(){conductor.bedsOn=false;}
-var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (you MAY name real artists/songs/albums). synth_beds = 1-4 rights-clean internal voices; role one of bass,pad,drone,lead,arp; key = a short unique id. arc = 2-6 BLOCKS in order, each {phase, bars (int), density (0..1 target energy, rising to a peak then easing), focus, queries (1-3 YouTube search phrases to fetch for THIS block)}. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener. EXAMPLE -- Intent: cinematic build in A minor at 120 bpm, Olafur Arnalds and Hans Zimmer, three movements. You return EXACTLY (no prose, no fences): {"queries":["Olafur Arnalds re:member","Hans Zimmer Time"],"synth_beds":[{"key":"drone","role":"drone"},{"key":"pad","role":"pad"}],"arc":[{"phase":"intro","bars":16,"density":0.3,"focus":"lone drone, sparse","queries":["Stars of the Lid","Olafur Arnalds re:member"]},{"phase":"build","bars":32,"density":0.6,"focus":"layer strings, rising filter","queries":["Bonobo Kerala","Tycho Awake"]},{"phase":"peak","bars":16,"density":0.85,"focus":"full harmony then release","queries":["Jon Hopkins Emerald Rush"]}],"session_key":"A:minor","session_bpm":120,"note":"Three movements, from a single breath to full sky."} Rules the example shows: honor the named bpm and key EXACTLY; the arc has one phase per movement named; the note is one warm line, never inside the JSON fences.';
+var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (name real, well-known artists/songs/albums that fit the vibe -- this is how you look music up). synth_beds = 1-4 rights-clean internal voices; role one of bass,pad,drone,lead,arp; key = a short unique id. arc = 2-6 BLOCKS in order, each {phase, bars (int), density (0..1 target energy, rising to a peak then easing), focus, queries (1-3 YouTube search phrases to fetch for THIS block)}. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener. EXAMPLE -- Intent: cinematic build in A minor at 120 bpm, Olafur Arnalds and Hans Zimmer, three movements. You return EXACTLY (no prose, no fences): {"queries":["Olafur Arnalds re:member","Hans Zimmer Time"],"synth_beds":[{"key":"drone","role":"drone"},{"key":"pad","role":"pad"}],"arc":[{"phase":"intro","bars":16,"density":0.3,"focus":"lone drone, sparse","queries":["Stars of the Lid","Olafur Arnalds re:member"]},{"phase":"build","bars":32,"density":0.6,"focus":"layer strings, rising filter","queries":["Bonobo Kerala","Tycho Awake"]},{"phase":"peak","bars":16,"density":0.85,"focus":"full harmony then release","queries":["Jon Hopkins Emerald Rush"]}],"session_key":"A:minor","session_bpm":120,"note":"Three movements, from a single breath to full sky."} Rules the example shows: honor the named bpm and key EXACTLY; the arc has one phase per movement named; the note is one warm line, never inside the JSON fences.';
 // ===== Phase 6: the audited SPINE + movement advance + candidate load =====
 // auditSpine repairs the model plan in JS (the deterministic 'audit'): fill missing
 // per-block density (position ramp) + queries (flat fallback), clamp bars.
@@ -963,18 +963,34 @@ function conductorLoadNext(){if(!conductor.on)return null;var cands=preFilter(st
  return ch;}
 // movement advance: at a block boundary, update focus/density, prefetch the NEXT block, load a track
 function conductorCheckMovement(setBar){var bl=conductor.blocks;if(!bl||!bl.length)return;var idx=conductor.blockIdx;if(idx<bl.length-1&&setBar>=conductor.blockStarts[idx+1]){conductor.blockIdx=++idx;var blk=bl[idx];var pd=bl[idx-1]?bl[idx-1].density:blk.density;conductor.energyDir=(blk.density>pd)?1:(blk.density<pd?-1:0);dj.intents=[blk.phase+': '+blk.focus];conductor.densLo=Math.max(0,blk.density-0.12);conductor.densHi=Math.min(1,blk.density+0.12);cvLog('movement '+(idx+1)+'/'+bl.length+': '+blk.phase+' (energy '+blk.density+') -- '+blk.focus,'n');var nxt=bl[idx+1];if(nxt&&nxt.queries&&nxt.queries.length)prefetchQueries(nxt.queries,3).then(function(){if(conductor.on)conductorLoadNext();});else conductorLoadNext();}}
+// ===== chat helpers: paste links to mix from + a keyless default plan =====
+// A user can drop a list of URLs into the chat; we grab each via the grabber (url= lane)
+// and stage it in the pool so the Conductor mixes from exactly those tracks. Autonomous
+// lookup (no links) is the planner naming real artists -> its queries -> prefetchQueries.
+function extractUrls(t){return (String(t).match(/https?:\/\/[^\s,;]+/g)||[]);}
+async function grabLinksToPool(urls){var base=$('grabBase').value.trim().replace(/\/+$/,'');var got=0;for(var i=0;i<urls.length&&i<12;i++){try{var r=await fetch(base+'/grab?url='+encodeURIComponent(urls[i])+'&analyze=1');if(!r.ok)continue;var d=await r.json();if(d&&d.file){poolAdd(manifestToRec(d.id||('link'+i),d.title||('link '+(i+1)),base+d.file,d.manifest||{}));got++;cvLog('staged: '+(d.title||urls[i]).slice(0,52),'n');}}catch(e){}}return got;}
+// build a plan WITHOUT the LLM (key/beta not needed): key+bpm from the freshest pooled
+// track, a rising-then-easing arc, and the pooled titles as per-block queries.
+function defaultPlanFromPool(descr){var recs=pool.slice(-8),key='A:minor',bpmv=120;if(recs.length){var r0=recs[recs.length-1];if(r0.camelot&&CAMELOT_TO_KEY[r0.camelot]){var kk=CAMELOT_TO_KEY[r0.camelot];key=PITCHES[kk.pc]+':'+kk.scale;}if(r0.bpm)bpmv=Math.max(60,Math.min(180,Math.round(r0.bpm)));}var qs=recs.map(function(r){return r.title;}).filter(Boolean).slice(0,4);return {queries:qs,synth_beds:[{key:'pad',role:'pad'},{key:'bass',role:'bass'}],arc:[{phase:'intro',bars:24,density:0.35,focus:'ease in',queries:qs.slice(0,2)},{phase:'build',bars:32,density:0.65,focus:'layer and lift',queries:qs.slice(0,3)},{phase:'peak',bars:24,density:0.85,focus:'full energy',queries:qs},{phase:'ease',bars:24,density:0.5,focus:'come down',queries:qs.slice(0,2)}],session_key:key,session_bpm:bpmv,note:(conductor.userLinks?'Mixing your tracks':'A rights-clean synth set')+(descr?': '+descr.slice(0,40):'')};}
 async function conductorPlan(){
  if(!started)startAudio();
- var intent=$('cvIntent').value.trim();if(!intent){setStatus('tell the Conductor what you want to hear');return;}
+ var intent=$('cvIntent').value.trim();if(!intent){setStatus('tell the Conductor a vibe -- or paste some links to mix from');return;}
  if(conductor.on&&conductor.walkOn){cvLog('> '+intent);conductorSteer(intent);$('cvIntent').value='';return;}
  if(aiBusy){setStatus('AI is already working on something');return;}
  $('cvGo').classList.add('on');cvLog('> '+intent);setStatus('Conductor planning...');
- var plan;
- try{
-  var ctxNote=channels.size?(' Currently playing: '+order.map(function(id){var c=channels.get(id);return c?c.name:'';}).filter(Boolean).join(', ')+'. Continue from here.'):'';
-  var text=await aiChat(CONDUCTOR_SYS,'Intent: '+intent+'.'+ctxNote+' Return JSON only.',900);
-  plan=parseAiJson(text);
- }catch(e){$('cvGo').classList.remove('on');if(e.message!=='no-key')cvLog('planning failed: '+String(e.message).slice(0,80),'warn');return;}
+ var urls=extractUrls(intent),descr=intent.replace(/https?:\/\/[^\s,;]+/g,'').replace(/\s+/g,' ').trim();
+ conductor.userLinks=false;
+ if(urls.length){conductor.userLinks=true;cvLog('found '+urls.length+' link(s) -- grabbing to mix from...','n');setStatus('grabbing your '+urls.length+' link(s)...');var _got=await grabLinksToPool(urls);cvLog(_got+' track(s) staged from your links','n');if(!_got&&!descr){$('cvGo').classList.remove('on');setStatus('could not grab those links -- check the urls or the grabber');return;}}
+ var plan,_canAI=(typeof aiKey==='function'&&aiKey())||(typeof aiBeta==='function'&&aiBeta());
+ if(descr&&_canAI){
+  try{
+   var ctxNote=channels.size?(' Currently playing: '+order.map(function(id){var c=channels.get(id);return c?c.name:'';}).filter(Boolean).join(', ')+'. Continue from here.'):'';
+   var _ln=conductor.userLinks?(' The user has ALSO staged specific tracks to mix; plan the key/bpm/energy arc AROUND them and you may add a few complementary queries.'):'';
+   var text=await aiChat(CONDUCTOR_SYS,'Intent: '+descr+'.'+ctxNote+_ln+' Return JSON only.',900);
+   plan=parseAiJson(text);
+  }catch(e){if(e.message!=='no-key'){$('cvGo').classList.remove('on');cvLog('planning failed: '+String(e.message).slice(0,80),'warn');return;}}
+ }
+ if(!plan){plan=defaultPlanFromPool(descr);cvLog('mixing '+(conductor.userLinks?'your links':'a synth set')+' with a default arc (no planner call)','n');}
  conductor.on=true;
  var k=parseKey(plan.session_key);conductor.root=k.root;conductor.scale=k.scale;$('cvKey').textContent='key '+(plan.session_key||'A:minor');
  if(SESSION.auto){var km=String(plan.session_key||'').toLowerCase().match(/([a-g][#b]?)/);if(km&&km[1]in NOTEBASE)setSessionKey(NOTEBASE[km[1]],(String(plan.session_key).toLowerCase().indexOf('major')>=0?'major':'minor'),true);}
