@@ -242,7 +242,7 @@ function syncMasterUI(v){var ms=$('masterStrip');if(ms){var f=ms.querySelector('
 var SCHED_AHEAD=0.15,SCHED_TICK=25,schedTimer=null,nextBeatTime=0;
 function startClock(){if(!started)return;if(schedTimer)return;nextBeatTime=ctx.currentTime+0.06;schedTimer=setInterval(clockScheduler,SCHED_TICK);}
 function stopClock(){if(schedTimer){clearInterval(schedTimer);schedTimer=null;}}
-function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();nextBeatTime+=spb;}}
+function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));nextBeatTime+=spb;}}
 function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio){try{ch.audio.currentTime=0;}catch(e){}}});if(loopBuffer)restartLoop();setStatus('re-synced');}
 
 function handleBus(m){if(!m||!m.type)return;if(m.type==='hello')ensureComposer(m.id,m.name);else if(m.type==='bye')removeChannel(m.id);else if(m.type==='note'){var ch=ensureComposer(m.id,m.name);composerNote(ch,m.note|0,m.vel||100,m.dur||0.4);}}
@@ -648,7 +648,7 @@ $('djBtn').onclick=function(){dj.on?djStop():djStart();};
 // the grabber keyword lane when live and degrades honestly when it is not
 // (the grabber q=/analyze= lane is Phase 1 of the plan, deploy-gated).
 var conductorMode=false;
-var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
+var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
 function conductorAdvanceKey(){var code=nextKey();var kk=CAMELOT_TO_KEY[code];if(!kk)return;setSessionKey(kk.pc,kk.scale);cvLog('key walk -> '+code+' ('+PITCHES[kk.pc]+' '+kk.scale+')','n');}
 var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],pentatonic:[0,2,4,7,9]};
 var NOTEBASE={c:0,'c#':1,db:1,d:2,'d#':3,eb:3,e:4,f:5,'f#':6,gb:6,g:7,'g#':8,ab:8,a:9,'a#':10,bb:10,b:11};
@@ -683,6 +683,17 @@ function nextKey(){var nb=camelotNeighbors(stepper.key);var fresh=nb.filter(func
 function nextRecipe(){if(!stepper.deck.length){stepper.deck=RECIPES.slice();for(var i=stepper.deck.length-1;i>0;i--){var j=Math.floor(stepper.rng()*(i+1));var t=stepper.deck[i];stepper.deck[i]=stepper.deck[j];stepper.deck[j]=t;}}return stepper.deck.pop();}
 function trackUsable(id){return stepper.tracks.indexOf(id)<0;}
 function markTrack(id){if(id==null)return;stepper.tracks.push(id);if(stepper.tracks.length>stepper.TK)stepper.tracks.shift();}
+// ===== Phase 5: resident manifest pool + candidate pre-filter + block-ahead prefetch =====
+// The corpus layer. Prefetch analyzes tracks into a pool (manifests, NOT loaded as channels
+// yet); preFilter narrows the pool to a Camelot-legal, density-in-band, not-recently-used
+// shortlist BEFORE any model or the DJ sees it -- so the choice is pre-guaranteed unique+legal.
+var pool=[];
+function manifestToRec(id,title,url,man){var secs=(man.sections||[]);var dens=secs.length?secs.reduce(function(a,x){return a+(x.density||0);},0)/secs.length:0.5;return {id:id,title:title,url:url,camelot:(man.key&&man.key.camelot)||null,bpm:(man.tempo&&man.tempo.bpm)||null,density:Math.round(dens*100)/100,beatless:!!(man.tempo&&man.tempo.beatless)};}
+function poolAdd(rec){if(!rec||!rec.id)return;if(pool.some(function(x){return x.id===rec.id;}))return;pool.push(rec);if(pool.length>80)pool.shift();}
+function preFilter(targetCamelot,densLo,densHi,n){var legal=camelotNeighbors(targetCamelot);return pool.filter(function(r){if(!trackUsable(r.id))return false;if(r.beatless||!r.camelot)return false;if(legal.indexOf(r.camelot)<0)return false;if(typeof densLo==='number'&&r.density<densLo)return false;if(typeof densHi==='number'&&r.density>densHi)return false;return true;}).slice(0,n||8);}
+var prefetchBusy=false;
+async function prefetchQueries(queries,n){if(prefetchBusy||!queries||!queries.length)return;prefetchBusy=true;var base=$('grabBase').value.trim().replace(/[/]+$/,'');try{var lim=Math.min(queries.length,n||3);for(var i=0;i<lim;i++){var q=queries[i];try{var r=await fetch(base+'/grab?q='+encodeURIComponent(q)+'&analyze=1');if(!r.ok)continue;var d=await r.json();if(d&&d.file&&d.manifest&&(d.manifest.validation||{}).status!=='rejected'){poolAdd(manifestToRec(d.id||q,d.title||q,base+d.file,d.manifest));cvLog('prefetched: '+(d.title||q)+' ('+((d.manifest.key||{}).camelot||'?')+')','n');}}catch(e){}}}finally{prefetchBusy=false;}}
+
 
 function reseedBeds(seed){conductor.seed=(seed>>>0)||((typeof performance!=='undefined'?(performance.now()*1000)>>>0:12345));_rng=mulberry32(conductor.seed);conductor.beds.forEach(function(b){b.deg=null;});}
 function bedWalk(b,role,root,sc){
@@ -709,7 +720,16 @@ function conductorStep(when){
 }
 function startConductorBeds(){conductor.step=0;conductor.bedsOn=true;reseedBeds(conductor.seed);if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');}startClock();}
 function stopConductorBeds(){conductor.bedsOn=false;}
-var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (you MAY name real artists/songs/albums). synth_beds = 1-4 rights-clean internal voices; role one of bass,pad,drone,lead,arp; key = a short unique id. arc = 2-5 phases describing the set shape. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener. EXAMPLE -- Intent: cinematic build in A minor at 120 bpm, Olafur Arnalds and Hans Zimmer, three movements. You return EXACTLY (no prose, no fences): {"queries":["Olafur Arnalds re:member","Hans Zimmer Time"],"synth_beds":[{"key":"drone","role":"drone"},{"key":"pad","role":"pad"}],"arc":[{"phase":"intro","bars":16,"focus":"lone drone, sparse"},{"phase":"build","bars":32,"focus":"layer strings, rising filter"},{"phase":"peak","bars":16,"focus":"full harmony then release"}],"session_key":"A:minor","session_bpm":120,"note":"Three movements, from a single breath to full sky."} Rules the example shows: honor the named bpm and key EXACTLY; the arc has one phase per movement named; the note is one warm line, never inside the JSON fences.';
+var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (you MAY name real artists/songs/albums). synth_beds = 1-4 rights-clean internal voices; role one of bass,pad,drone,lead,arp; key = a short unique id. arc = 2-6 BLOCKS in order, each {phase, bars (int), density (0..1 target energy, rising to a peak then easing), focus, queries (1-3 YouTube search phrases to fetch for THIS block)}. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener. EXAMPLE -- Intent: cinematic build in A minor at 120 bpm, Olafur Arnalds and Hans Zimmer, three movements. You return EXACTLY (no prose, no fences): {"queries":["Olafur Arnalds re:member","Hans Zimmer Time"],"synth_beds":[{"key":"drone","role":"drone"},{"key":"pad","role":"pad"}],"arc":[{"phase":"intro","bars":16,"density":0.3,"focus":"lone drone, sparse","queries":["Stars of the Lid","Olafur Arnalds re:member"]},{"phase":"build","bars":32,"density":0.6,"focus":"layer strings, rising filter","queries":["Bonobo Kerala","Tycho Awake"]},{"phase":"peak","bars":16,"density":0.85,"focus":"full harmony then release","queries":["Jon Hopkins Emerald Rush"]}],"session_key":"A:minor","session_bpm":120,"note":"Three movements, from a single breath to full sky."} Rules the example shows: honor the named bpm and key EXACTLY; the arc has one phase per movement named; the note is one warm line, never inside the JSON fences.';
+// ===== Phase 6: the audited SPINE + movement advance + candidate load =====
+// auditSpine repairs the model plan in JS (the deterministic 'audit'): fill missing
+// per-block density (position ramp) + queries (flat fallback), clamp bars.
+function auditSpine(plan){var raw=Array.isArray(plan.arc)?plan.arc:[];if(!raw.length)raw=[{phase:'flow',bars:32,density:0.5,focus:'steady groove'}];var n=raw.length;return raw.map(function(a,i){var dens=(typeof a.density==='number')?Math.max(0,Math.min(1,a.density)):Math.round((0.3+0.55*(i/Math.max(1,n-1)))*100)/100;var q=Array.isArray(a.queries)?a.queries.filter(function(x){return typeof x==='string'&&x.length>1;}).slice(0,3):[];if(!q.length&&Array.isArray(plan.queries))q=plan.queries.slice(i,i+2);return {phase:String(a.phase||('block'+(i+1))).slice(0,24),bars:Math.max(4,Math.min(512,parseInt(a.bars,10)||32)),density:dens,focus:String(a.focus||'').slice(0,80),queries:q};});}
+// load one pre-filtered candidate (Camelot-legal + density-in-band + fresh) into the mix,
+// tempo+key-locked to the current walk key. The beds cover any gap before it lands.
+function conductorLoadNext(){if(!conductor.on)return null;var cands=preFilter(stepper.key,conductor.densLo,conductor.densHi,8);if(!cands.length)return null;var pick=cands[Math.floor(stepper.rng()*cands.length)];markTrack(pick.id);var kk=CAMELOT_TO_KEY[pick.camelot]||{};var ch=addFileChannel(pick.url,pick.title);ch.manifest={schema:'dragon-mix-manifest/1',tempo:{bpm:pick.bpm,beatless:pick.beatless},key:pick.camelot?{camelot:pick.camelot,pitch_class:kk.pc,scale:kk.scale}:null};attachManifest(ch,ch.manifest);cvLog('bring in: '+pick.title+' ('+(pick.camelot||'?')+')','n');return ch;}
+// movement advance: at a block boundary, update focus/density, prefetch the NEXT block, load a track
+function conductorCheckMovement(setBar){var bl=conductor.blocks;if(!bl||!bl.length)return;var idx=conductor.blockIdx;if(idx<bl.length-1&&setBar>=conductor.blockStarts[idx+1]){conductor.blockIdx=++idx;var blk=bl[idx];dj.intents=[blk.phase+': '+blk.focus];conductor.densLo=Math.max(0,blk.density-0.12);conductor.densHi=Math.min(1,blk.density+0.12);cvLog('movement '+(idx+1)+'/'+bl.length+': '+blk.phase+' (energy '+blk.density+') -- '+blk.focus,'n');var nxt=bl[idx+1];if(nxt&&nxt.queries&&nxt.queries.length)prefetchQueries(nxt.queries,3).then(function(){if(conductor.on)conductorLoadNext();});else conductorLoadNext();}}
 async function conductorPlan(){
  if(!started)startAudio();
  var intent=$('cvIntent').value.trim();if(!intent){setStatus('tell the Conductor what you want to hear');return;}
@@ -736,19 +756,10 @@ async function conductorPlan(){
   conductor.beds.push({id:id,role:(b.role||'pad')});
  });
  if(conductor.beds.length){startConductorBeds();cvLog('beds live: '+conductor.beds.map(function(b){return b.role;}).join(', '),'n');}
- var base=$('grabBase').value.trim().replace(/\/$/,'');
- (plan.queries||[]).slice(0,4).forEach(function(q){
-  cvLog('fetching: '+q+' ...');
-  fetch(base+'/grab?q='+encodeURIComponent(q)+'&analyze=1').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(d){
-   if(d&&d.file){
-    var man=d.manifest;
-    if(man&&man.validation&&man.validation.status==='rejected'){cvLog('skipped "'+(d.title||q)+'": '+(man.validation.reasons||[]).join(','),'warn');return;}
-    var ch=addFileChannel(base+d.file,(d.title||q));if(man)attachManifest(ch,man);
-    cvLog('loaded: '+(d.title||q)+(man&&man.tempo&&man.tempo.bpm?(' ('+Math.round(man.tempo.bpm)+' bpm, tempo-locked)'):''),'n');
-   }else throw new Error('no file');
-  }).catch(function(e){cvLog('acquire unavailable for "'+q+'" ('+String(e.message).slice(0,42)+') -- staying on synth beds','warn');});
- });
- dj.intents=conductor.arc.map(function(a){return (a.phase||'')+': '+(a.focus||'');}).filter(function(x){return x.length>2;}).slice(0,6);
+ conductor.blocks=auditSpine(plan);conductor.blockIdx=0;conductor.blockStarts=[0];var _acc=0;conductor.blocks.forEach(function(b){_acc+=b.bars;conductor.blockStarts.push(_acc);});
+ var b0=conductor.blocks[0];dj.intents=[b0.phase+': '+b0.focus];conductor.densLo=Math.max(0,b0.density-0.12);conductor.densHi=Math.min(1,b0.density+0.12);
+ cvLog('spine: '+conductor.blocks.length+' blocks -- '+conductor.blocks.map(function(b){return b.phase+'@'+b.density;}).join(' / '),'n');
+ prefetchQueries(b0.queries,3).then(function(){if(conductor.on)conductorLoadNext();});
  setTimeout(function(){if(conductor.on&&!dj.on)djStart();},600);
  $('cvGo').classList.remove('on');setStatus('Conductor performing -- touch the console to take over');
 }
