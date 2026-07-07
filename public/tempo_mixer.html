@@ -93,6 +93,15 @@ body.conductor #aibar{opacity:.55}
 #cvLog .n{color:var(--cyan)}
 #cvLog .warn{color:var(--amber)}
 body.embed #cvIntent,body.embed #cvGo,body.embed #cvStop,body.embed #cvLog{display:none}
+/* embed = clean PERFORMANCE view (the /conductor shell provides the chat): hide the editing
+   chrome, keep the channels + the AI's live automation as the instrument. */
+body.embed .tbar{display:none!important}
+body.embed #modeSeg,body.embed #startBtn,body.embed #clockBtn,body.embed #recBtn,body.embed #cvLogBtn,body.embed #resyncBtn,body.embed #wavBtn,body.embed #webmBtn,body.embed #loopBtn,body.embed #loopStopBtn,body.embed #panicBtn,body.embed #dlBtn,body.embed #loopBars,body.embed #bpm{display:none!important}
+body.embed .clock label[title^="swing"]{display:none!important}
+body.embed .ctarow{display:none!important}
+body.embed .empty{color:var(--dim);font-size:13px;padding:30px;text-align:center;opacity:.7}
+body.embed .rack{padding-top:10px;gap:10px}
+body.embed .strip{box-shadow:0 1px 0 rgba(255,255,255,.03) inset}
 </style></head>
 <body>
 <div class="console">
