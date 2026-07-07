@@ -276,3 +276,16 @@ commit auto-deployed a static `serve` build ONTO dragon-grabber (grabber 404'd; 
 by railway up 39a3eba3). Until the dashboard source is fixed (dragon-grabber service ->
 Settings -> Source -> Cloud-Eye-Prime/dragon-grabber), dragon-instruments commits are
 held LOCAL (cae7645 + this one) and deploys go by railway up only. After the fix, push.
+
+## ADDENDUM 2026-07-06e -- SOURCE HAZARD RESOLVED + THE LANE IS FULLY OPEN
+
+- Architect reconnected dragon-grabber's dashboard GitHub source to
+  Cloud-Eye-Prime/dragon-grabber. PROVEN by the failing test: a dragon-instruments push
+  (ad5f713) no longer touches the grabber; Railway's initial deploy from the corrected
+  source (016adc61) serves the true app (deno + cookies:true + q= functional). Both repos
+  push-safe; the grabber auto-deploys from its own repo now.
+- YT_COOKIES_B64 live (another session; adversarially verified). The mixer grab box accepts
+  a plain SEARCH PHRASE (non-URL -> /grab?q=). End-to-end from the UI: phrase -> YouTube ->
+  manifest -> session-key adoption -> SoundTouch true-stretch. The conductor pipeline that
+  this plan describes is now open at every stage; remaining human-gated items are the BYO
+  Anthropic key at perform-time and the Listener real-mic tempo lock test.
