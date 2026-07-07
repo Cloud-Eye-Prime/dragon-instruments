@@ -242,7 +242,7 @@ function syncMasterUI(v){var ms=$('masterStrip');if(ms){var f=ms.querySelector('
 var SCHED_AHEAD=0.15,SCHED_TICK=25,schedTimer=null,nextBeatTime=0;
 function startClock(){if(!started)return;if(schedTimer)return;nextBeatTime=ctx.currentTime+0.06;schedTimer=setInterval(clockScheduler,SCHED_TICK);}
 function stopClock(){if(schedTimer){clearInterval(schedTimer);schedTimer=null;}}
-function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}nextBeatTime+=spb;}}
+function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();nextBeatTime+=spb;}}
 function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio){try{ch.audio.currentTime=0;}catch(e){}}});if(loopBuffer)restartLoop();setStatus('re-synced');}
 
 function handleBus(m){if(!m||!m.type)return;if(m.type==='hello')ensureComposer(m.id,m.name);else if(m.type==='bye')removeChannel(m.id);else if(m.type==='note'){var ch=ensureComposer(m.id,m.name);composerNote(ch,m.note|0,m.vel||100,m.dur||0.4);}}
@@ -648,7 +648,8 @@ $('djBtn').onclick=function(){dj.on?djStop():djStart();};
 // the grabber keyword lane when live and degrades honestly when it is not
 // (the grabber q=/analyze= lane is Phase 1 of the plan, deploy-gated).
 var conductorMode=false;
-var conductor={on:false,bedsOn:false,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
+var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
+function conductorAdvanceKey(){var code=nextKey();var kk=CAMELOT_TO_KEY[code];if(!kk)return;setSessionKey(kk.pc,kk.scale);cvLog('key walk -> '+code+' ('+PITCHES[kk.pc]+' '+kk.scale+')','n');}
 var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],pentatonic:[0,2,4,7,9]};
 var NOTEBASE={c:0,'c#':1,db:1,d:2,'d#':3,eb:3,e:4,f:5,'f#':6,gb:6,g:7,'g#':8,ab:8,a:9,'a#':10,bb:10,b:11};
 var BEDTIMBRE={bass:'sawtooth',pad:'triangle',drone:'sine',lead:'square',arp:'square'};
@@ -666,9 +667,12 @@ var _rng=mulberry32(123456789);
 // whole-track ledger + a transition-recipe deck dealt without replacement, all
 // off one seeded stream. Non-repetition is a COMBINATORIAL CERTAINTY, not sampled.
 var CAMELOT_TO_KEY={};
+var KEY_TO_CAMELOT={};
 (function(){var maj={0:'8B',1:'3B',2:'10B',3:'5B',4:'12B',5:'7B',6:'2B',7:'9B',8:'4B',9:'11B',10:'6B',11:'1B'};
  var min={0:'5A',1:'12A',2:'7A',3:'2A',4:'9A',5:'4A',6:'11A',7:'6A',8:'1A',9:'8A',10:'3A',11:'10A'};var k;
- for(k in maj)CAMELOT_TO_KEY[maj[k]]={pc:+k,scale:'major'};for(k in min)CAMELOT_TO_KEY[min[k]]={pc:+k,scale:'minor'};})();
+ for(k in maj){CAMELOT_TO_KEY[maj[k]]={pc:+k,scale:'major'};KEY_TO_CAMELOT[k+':major']=maj[k];}
+ for(k in min){CAMELOT_TO_KEY[min[k]]={pc:+k,scale:'minor'};KEY_TO_CAMELOT[k+':minor']=min[k];}})();
+function keyNameToCamelot(name){var pp=parseKey(name);var pc=((pp.root%12)+12)%12;var scale=(pp.scale===SCALES.major)?'major':'minor';return KEY_TO_CAMELOT[pc+':'+scale]||null;}
 function camelotParse(code){var m=String(code||'').match(/^(\d{1,2})([ab])$/i);if(!m)return null;var n=+m[1];if(n<1||n>12)return null;return {n:n,L:m[2].toUpperCase()};}
 function camelotNeighbors(code){var c=camelotParse(code);if(!c)return[];var n=c.n,L=c.L,oL=(L==='A'?'B':'A');return [n+L,(n%12+1)+L,((n+10)%12+1)+L,n+oL];}
 function camelotToKeyName(code){var k=CAMELOT_TO_KEY[String(code).toUpperCase()];return k?(PITCHES[k.pc]+':'+k.scale):null;}
@@ -720,6 +724,9 @@ async function conductorPlan(){
  conductor.on=true;
  var k=parseKey(plan.session_key);conductor.root=k.root;conductor.scale=k.scale;$('cvKey').textContent='key '+(plan.session_key||'A:minor');
  if(SESSION.auto){var km=String(plan.session_key||'').toLowerCase().match(/([a-g][#b]?)/);if(km&&km[1]in NOTEBASE)setSessionKey(NOTEBASE[km[1]],(String(plan.session_key).toLowerCase().indexOf('major')>=0?'major':'minor'),true);}
+ if(!conductor.seed)conductor.seed=(Math.floor(performance.now()*1000))>>>0;
+ stepperReset(keyNameToCamelot(plan.session_key)||'8A',conductor.seed);conductor.walkOn=true;conductor.walkStartBeat=beatCount;SESSION.auto=false;
+ cvLog('harmonic walk armed from '+(keyNameToCamelot(plan.session_key)||'8A')+' -- key steps every '+(conductor.blockBeats/4)+' bars','n');
  var sb=parseInt(plan.session_bpm,10);if(sb>=60&&sb<=180){$('bpm').value=sb;$('bpmReadout').textContent=sb;refreshRates();if(clockOn)startClock();}
  conductor.arc=Array.isArray(plan.arc)?plan.arc:[];
  if(plan.note)cvLog(plan.note,'n');
@@ -745,7 +752,7 @@ async function conductorPlan(){
  setTimeout(function(){if(conductor.on&&!dj.on)djStart();},600);
  $('cvGo').classList.remove('on');setStatus('Conductor performing -- touch the console to take over');
 }
-function conductorStop(){conductor.on=false;stopConductorBeds();stopBreath();stopListener();djStop('conductor stopped');cvLog('set ended -- beds silenced','warn');setStatus('Conductor stopped');}
+function conductorStop(){conductor.on=false;conductor.walkOn=false;stopConductorBeds();stopBreath();stopListener();djStop('conductor stopped');cvLog('set ended -- beds silenced','warn');setStatus('Conductor stopped');}
 
 // ===== Phase 5: time authority -- Session-led | Breath-led | Listener =====
 var AUTH={mode:'session'};
