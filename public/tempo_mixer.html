@@ -47,6 +47,7 @@ input.x,select.x{background:#0a0f16;border:1px solid #233044;color:var(--txt);bo
 .tog{flex:1;font-size:10px;padding:4px 0;border-radius:5px;border:1px solid var(--bd2);background:#121a25;color:var(--dim);cursor:pointer;text-align:center;font-family:inherit}
 .tog.mute.on{background:#3a1620;color:#ff7d92;border-color:#5e2433}
 .tog.solo.on{background:#3a2f12;color:#ffd166;border-color:#5e4a1f}
+.tog.pin.on{background:#123a2a;color:#5fe0a0;border-color:#2f7a5e}
 .grp{flex:0 0 28px;font-size:10px;padding:4px 0;border-radius:5px;border:1px solid var(--bd2);background:#121a25;color:var(--dim);cursor:pointer;text-align:center;font-family:inherit}
 .grp.L{background:#0e2336;color:#5fb6ff;border-color:#27506e}
 .grp.R{background:#2e2410;color:#ffc46b;border-color:#5e4a1f}
@@ -120,6 +121,7 @@ body.embed #cvIntent,body.embed #cvGo,body.embed #cvStop,body.embed #cvLog{displ
     <span id="llRow" style="display:none;align-items:center;gap:6px">
       <input class="x" id="llBars" type="number" value="4" min="1" max="16" style="width:42px" title="loop length in bars">
       <button class="tbtn" id="llArm" title="arm -- capture begins on the next bar downbeat">arm loop</button>
+      <button class="tbtn" id="llAI" title="AI mode -- generate + evolve a melodic loop from the internal synth stack on the phrase grid (no mic)">human</button>
     </span>
     <input class="x" id="urlIn" placeholder="media url" style="width:140px"><button class="tbtn" id="urlBtn">load url</button>
     <button class="tbtn" id="ytBtn">add from YouTube...</button>
@@ -247,7 +249,7 @@ function syncMasterUI(v){var ms=$('masterStrip');if(ms){var f=ms.querySelector('
 var SCHED_AHEAD=0.15,SCHED_TICK=25,schedTimer=null,nextBeatTime=0;
 function startClock(){if(!started)return;if(schedTimer)return;nextBeatTime=ctx.currentTime+0.06;schedTimer=setInterval(clockScheduler,SCHED_TICK);}
 function stopClock(){if(schedTimer){clearInterval(schedTimer);schedTimer=null;}}
-function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));if(liveIn.armed&&b===0)beginLoopCapture();nextBeatTime+=spb;}}
+function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));if(liveIn.armed&&b===0)beginLoopCapture();if(aiLoop.on){var _bar=Math.floor(beatCount/4),_q=spb/4;for(var _i=0;_i<4;_i++)aiLoopTick(nextBeatTime+_i*_q,b*4+_i,_bar);}nextBeatTime+=spb;}}
 function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio){try{ch.audio.currentTime=0;}catch(e){}}});if(loopBuffer)restartLoop();setStatus('re-synced');}
 
 function handleBus(m){if(!m||!m.type)return;if(m.type==='hello')ensureComposer(m.id,m.name);else if(m.type==='bye')removeChannel(m.id);else if(m.type==='note'){var ch=ensureComposer(m.id,m.name);composerNote(ch,m.note|0,m.vel||100,m.dur||0.4);}}
@@ -286,7 +288,7 @@ function buildChannel(opt){var inGain=ctx.createGain();
  filter.connect(conv);conv.connect(revSend);revSend.connect(chGain);
  chGain.connect(panner);panner.connect(master);chGain.connect(an);
  var k={};for(var key in KDEF)k[key]=KDEF[key];
- var ch={id:opt.id,type:opt.type,name:opt.name,color:opt.color,fader:0.78,mute:false,solo:false,group:opt.group,k:k,timbre:'sine',audio:opt.audio||null,track:opt.track||null,srcBPM:120,match:false,nodes:{inGain:inGain,eqLow:eqLow,eqMid:eqMid,eqHigh:eqHigh,filter:filter,chGain:chGain,panner:panner,an:an,delay:delay,fb:fb,dlySend:dlySend,conv:conv,revSend:revSend},data:new Uint8Array(an.fftSize),els:{}};
+ var ch={id:opt.id,type:opt.type,name:opt.name,color:opt.color,fader:0.78,mute:false,solo:false,pinned:false,isLoop:false,group:opt.group,k:k,timbre:'sine',audio:opt.audio||null,track:opt.track||null,srcBPM:120,match:false,nodes:{inGain:inGain,eqLow:eqLow,eqMid:eqMid,eqHigh:eqHigh,filter:filter,chGain:chGain,panner:panner,an:an,delay:delay,fb:fb,dlySend:dlySend,conv:conv,revSend:revSend},data:new Uint8Array(an.fftSize),els:{}};
  channels.set(ch.id,ch);order.push(ch.id);renderStrip(ch);var em=$('emptyMsg');if(em)em.remove();
  for(var kk in k)applyKnob(ch,kk,k[kk]);
  recomputeGains();return ch;}
@@ -304,7 +306,7 @@ function renderStrip(c){var ci=c.id,cp=CHIP[c.type];
   '<div><span class="chip" style="background:'+cp.bg+';color:'+cp.fg+'">'+cp.t+'</span></div>'+
   '<div class="ssum" data-sum="1" title="this strip at a glance">flat</div>'+subHTML(ci,c)+
   '<div class="kgrid">'+fx+'</div><div class="kgrid" style="grid-template-columns:1fr">'+knobHTML(ci,'pan','pan',c.k.pan)+'</div>'+
-  '<div class="btns"><button class="tog solo'+(c.solo?' on':'')+'" data-solo="'+ci+'">solo</button><button class="tog mute'+(c.mute?' on':'')+'" data-mute="'+ci+'">mute</button><button class="grp '+(c.group||'')+'" data-grp="'+ci+'">'+(c.group||'-')+'</button></div>'+
+  '<div class="btns"><button class="tog solo'+(c.solo?' on':'')+'" data-solo="'+ci+'">solo</button><button class="tog mute'+(c.mute?' on':'')+'" data-mute="'+ci+'">mute</button><button class="tog pin'+(c.pinned?' on':'')+'" data-pin="'+ci+'" title="pin -- the AI DJ and transitions will not touch this strip">pin</button><button class="grp '+(c.group||'')+'" data-grp="'+ci+'">'+(c.group||'-')+'</button></div>'+
   '<div class="fz"><div class="fader" data-ci="'+ci+'"><div class="ftrack"></div><div class="fcap"><div class="fline"></div></div></div><div class="meter">'+segCol(ci+'-l')+segCol(ci+'-r')+'</div></div>'+
   '<div class="db" data-db="'+ci+'">'+dbStr(c.fader)+'</div>';
  var ms=$('masterStrip');if(ms)$('rack').insertBefore(s,ms);else $('rack').appendChild(s);c.els.strip=s;
@@ -334,6 +336,7 @@ $('rack').addEventListener('dblclick',function(e){var k=e.target.closest('.knob'
 $('rack').addEventListener('click',function(e){
  var cta=e.target.closest('[data-cta]');
  if(cta){var a=cta.dataset.cta;if(a==='start')startAudio();else if(a==='cap')captureSource();else if(a==='file')$('fileInput').click();return;}
+ var pn=e.target.closest('[data-pin]');if(pn){var cp=channels.get(pn.dataset.pin);cp.pinned=!cp.pinned;pn.classList.toggle('on',cp.pinned);setStatus(cp.pinned?'pinned '+cp.name+' -- AI leaves it alone; the set keeps running':'unpinned '+cp.name);return;}
  if(dj.on&&e.target.closest('.tog,.grp,.mini'))djStop('manual override -- your hands win');
  var s=e.target.closest('[data-solo]');if(s){var c1=channels.get(s.dataset.solo);c1.solo=!c1.solo;s.classList.toggle('on',c1.solo);recomputeGains();return;}
  var m=e.target.closest('[data-mute]');if(m){var c2=channels.get(m.dataset.mute);c2.mute=!c2.mute;m.classList.toggle('on',c2.mute);recomputeGains();return;}
@@ -354,11 +357,80 @@ async function captureSource(){if(!started)startAudio();var st;try{st=await navi
 // Rides the unified clock (Phase 0): capture begins on a bar downbeat and runs exactly
 // N bars, so the loop is seamless + in phase with beds/tracks. The live input is NEVER
 // routed to master -> no feedback; only the captured loops (as channels) are heard.
-var liveIn={stream:null,src:null,proc:null,sink:null,armed:false,bars:4,capturing:false,L:[],R:[],target:0};var loopCount=0;
+var liveIn={stream:null,src:null,proc:null,sink:null,armed:false,bars:4,capturing:false,L:[],R:[],target:0,mode:'human'};var loopCount=0;
 async function liveLoopInput(){if(!started)startAudio();if(liveIn.src){var rr=$('llRow');rr.style.display=(rr.style.display==='none'?'inline-flex':'none');return;}var st;try{st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});}catch(e){setStatus('live input denied: '+(e.message||e));return;}liveIn.stream=st;liveIn.src=ctx.createMediaStreamSource(st);liveIn.proc=ctx.createScriptProcessor(4096,2,2);liveIn.sink=ctx.createGain();liveIn.sink.gain.value=0;liveIn.src.connect(liveIn.proc);liveIn.proc.connect(liveIn.sink);liveIn.sink.connect(ctx.destination);liveIn.proc.onaudioprocess=function(e){if(!liveIn.capturing)return;var ib=e.inputBuffer,l=ib.getChannelData(0),r=ib.numberOfChannels>1?ib.getChannelData(1):l;liveIn.L.push(new Float32Array(l));liveIn.R.push(new Float32Array(r));var h=0;for(var i=0;i<liveIn.L.length;i++)h+=liveIn.L[i].length;if(h>=liveIn.target)finishLoopCapture();};$('llBtn').classList.add('on');$('llRow').style.display='inline-flex';setStatus('live input connected -- set bars + arm (headphones advised)');}
 function armLoopCapture(){if(!liveIn.src){liveLoopInput();return;}liveIn.bars=Math.max(1,Math.min(16,parseInt($('llBars').value,10)||4));liveIn.armed=true;$('llArm').classList.add('on');if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');startClock();}setStatus('armed -- capturing '+liveIn.bars+' bars on the next downbeat');}
 function beginLoopCapture(){liveIn.armed=false;liveIn.capturing=true;liveIn.L=[];liveIn.R=[];liveIn.target=Math.round(liveIn.bars*4*(60/bpm())*ctx.sampleRate);$('llArm').classList.remove('on');setStatus('capturing '+liveIn.bars+' bars...');}
-function finishLoopCapture(){if(!liveIn.capturing)return;liveIn.capturing=false;var l=flatten(liveIn.L),r=flatten(liveIn.R);liveIn.L=[];liveIn.R=[];if(!l.length)return;var lat=Math.round((((ctx.baseLatency||0)+(ctx.outputLatency||0)))*ctx.sampleRate);if(lat>0&&lat<l.length){l=l.subarray(lat);r=r.subarray(lat);}var n=Math.min(l.length,liveIn.target||l.length);var buf=ctx.createBuffer(2,n,ctx.sampleRate);buf.getChannelData(0).set(l.subarray(0,n));buf.getChannelData(1).set(r.subarray(0,n));var id='loop-'+Math.random().toString(36).slice(2,6);var node=ctx.createBufferSource();node.buffer=buf;node.loop=true;var ch=buildChannel({id:id,type:'file',name:'Loop '+(++loopCount),color:COLS[order.length%COLS.length],head:node,group:null});node.start();ch.srcBPM=bpm();setStatus('loop layered: '+(n/ctx.sampleRate).toFixed(2)+'s ('+liveIn.bars+' bars) -- looping in phase');}
+function finishLoopCapture(){if(!liveIn.capturing)return;liveIn.capturing=false;var l=flatten(liveIn.L),r=flatten(liveIn.R);liveIn.L=[];liveIn.R=[];if(!l.length)return;var lat=Math.round((((ctx.baseLatency||0)+(ctx.outputLatency||0)))*ctx.sampleRate);if(lat>0&&lat<l.length){l=l.subarray(lat);r=r.subarray(lat);}var n=Math.min(l.length,liveIn.target||l.length);var buf=ctx.createBuffer(2,n,ctx.sampleRate);buf.getChannelData(0).set(l.subarray(0,n));buf.getChannelData(1).set(r.subarray(0,n));var id='loop-'+Math.random().toString(36).slice(2,6);var node=ctx.createBufferSource();node.buffer=buf;node.loop=true;var ch=buildChannel({id:id,type:'file',name:'Loop '+(++loopCount),color:COLS[order.length%COLS.length],head:node,group:null});ch.isLoop=true;node.start();ch.srcBPM=bpm();setStatus('loop layered: '+(n/ctx.sampleRate).toFixed(2)+'s ('+liveIn.bars+' bars) -- looping in phase');}
+
+// ===== FEATURE 2: AI-MODE LIVE LOOPER (generative pattern from the synth stack) =====
+// The live-loop mode gets a human/AI toggle. AI mode GENERATES a melodic loop from the
+// internal composer voices (not a mic) and EVOLVES it on the phrase grid -- a raga-style
+// pattern that updates at the phrase interval. It is a normal composer channel, so it is
+// mixable, FX-able, and (Feature 3) pin-able.
+var RAGA_SCALES={bhairav:[0,1,4,5,7,8,11],yaman:[0,2,4,6,7,9,11]};
+var aiLoop={on:false,pattern:[],scale:[0,2,3,5,7,8,10],root:57,evolveBars:8,step:0,lastEvolveBar:-1,gen:0};
+function aiLoopScale(){
+ var intent=(($('cvIntent')&&$('cvIntent').value)||'').toLowerCase();
+ var genres=(conductor.genres||[]);
+ var raga=(intent.indexOf('raga')>=0)||genres.some(function(g){return g.n==='raga';});
+ if(raga)return (_rng()<0.5?RAGA_SCALES.bhairav:RAGA_SCALES.yaman).slice();
+ if(conductor.scale&&conductor.scale.length)return conductor.scale.slice();
+ return SCALES.minor.slice();
+}
+function aiLoopSeed(scale){
+ // 8-16 sparse, in-scale events over a 16-step (one bar) grid; degrees index into scale.
+ var pat=[],want=8+Math.floor(_rng()*8),used={};
+ for(var i=0;i<want;i++){
+  var st=Math.floor(_rng()*16);if(used[st]){continue;}used[st]=1;
+  var deg=Math.floor(_rng()*scale.length*2);
+  var vel=64+Math.floor(_rng()*48);
+  pat.push({step16:st,deg:deg,vel:vel});
+ }
+ pat.sort(function(a,b){return a.step16-b.step16;});
+ return pat;
+}
+function aiLoopStart(){
+ var ch=ensureComposer('ailoop','~ai loop');ch.timbre='triangle';ch.isLoop=true;
+ var scale=aiLoopScale();
+ aiLoop={on:true,pattern:aiLoopSeed(scale),scale:scale,root:conductor.root||57,evolveBars:(conductor.genres[0]?conductor.genres[0].ph:8),step:0,lastEvolveBar:-1,gen:0};
+ if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');}
+ if(started)startClock();
+ cvLog('ai loop live -- '+aiLoop.pattern.length+' notes, evolves every '+aiLoop.evolveBars+' bars','n');
+}
+function aiLoopStop(){aiLoop.on=false;cvLog('ai loop stopped','n');}
+// EVOLVE: Markov-mutate each event by scale DEGREE (same 0.4, +1/-1 0.2 each, +2/-2 0.2),
+// nudge velocity, occasionally add/drop a note. Length stays bounded.
+function aiLoopEvolve(){
+ var sc=aiLoop.scale,pat=aiLoop.pattern.map(function(e){
+  var r=_rng(),dd=0;
+  if(r<0.4)dd=0;else if(r<0.6)dd=1;else if(r<0.8)dd=-1;else dd=(_rng()<0.5?2:-2);
+  var deg=Math.max(0,Math.min(sc.length*3-1,e.deg+dd));
+  var vel=Math.max(40,Math.min(120,e.vel+Math.round((_rng()*2-1)*12)));
+  return {step16:e.step16,deg:deg,vel:vel};
+ });
+ if(_rng()<0.1){
+  if(pat.length>6&&_rng()<0.5){pat.splice(Math.floor(_rng()*pat.length),1);}
+  else if(pat.length<16){pat.push({step16:Math.floor(_rng()*16),deg:Math.floor(_rng()*sc.length*2),vel:64+Math.floor(_rng()*48)});pat.sort(function(a,b){return a.step16-b.step16;});}
+ }
+ aiLoop.pattern=pat;aiLoop.gen++;
+ cvLog('ai loop evolved (gen '+aiLoop.gen+')','n');
+}
+// DRIVE: called from the unified scheduler with the schedule time and a 16th-note index.
+// Plays every event whose step16 matches; keeps in-scale + follows conductor.root.
+function aiLoopTick(when,step16,barAbs){
+ if(!aiLoop.on)return;var ch=channels.get('ailoop');if(!ch)return;
+ var root=conductor.root||aiLoop.root,sc=aiLoop.scale,spb=60/bpm(),dur=spb*0.45;
+ aiLoop.pattern.forEach(function(e){
+  if(e.step16!==step16)return;
+  var oct=Math.floor(e.deg/sc.length)*12;
+  var midi=root+12+oct+sc[e.deg%sc.length];
+  composerNote(ch,midi,e.vel,dur,when);
+ });
+ if(step16===0&&aiLoop.evolveBars>0&&barAbs!==aiLoop.lastEvolveBar&&(barAbs%aiLoop.evolveBars===0)&&barAbs>0){
+  aiLoop.lastEvolveBar=barAbs;aiLoopEvolve();
+ }
+}
 
 function addFileChannel(url,name){if(!started)startAudio();var audio=new Audio();audio.crossOrigin='anonymous';audio.src=url;audio.loop=true;var src=ctx.createMediaElementSource(audio);var id='file-'+Math.random().toString(36).slice(2,7);var ch=buildChannel({id:id,type:'file',name:(name||'File').slice(0,18),color:COLS[order.length%COLS.length],head:src,audio:audio,group:null});ch.srcUrl=url;audio.addEventListener('error',function(){setStatus('file/url load error (CORS?) - '+ch.name);});applyRate(ch);audio.play().catch(function(){});setStatus('loaded: '+ch.name+' - set bpm + match');return ch;}
 // Phase 2 ingest: attach a dragon-mix-manifest to a channel -- srcBPM from the
@@ -608,6 +680,7 @@ var dj={on:false,plan:{},plannedThrough:-1,intents:[],requesting:false,coolUntil
 var DJ_LEAD=2,DJ_WINDOW=4;
 var DJ_SYS='You are a live AI DJ riding a small mixing console mid-set. You write the NEAR FUTURE: bounded mix moves for the requested bars, each landing on that bar\'s downbeat and ramping over a few beats. Output ONLY raw JSON, no prose, no fences. Schema: {"moves":[{"bar":int,"strip":string,"param":string,"to":float,"beats":int}],"intent":string}. bar = absolute bar number, only from the requested list. param one of fader,high,mid,low,filt,rev,dly,pan -- or "xfade" (then omit strip). to = target 0..1 with console knob semantics (0.5 neutral EQ; filt 0.5 off, lower closes a low-pass, higher opens a high-pass; fader 0.78 unity-ish; xfade 0 full L group, 1 full R). beats = ramp length 1..16. Write 1-4 moves per bar, not every bar needs moves. Build tension and release: sweep filters into transitions, trade groups on the crossfader when both exist, never slam everything at once. intent = one short phrase for the human watching. EXAMPLE -- at bar 16, 124 bpm, deckA (Bonobo, L) is up and deckB (Tycho, R) is low; hand the floor to deckB with a drop on bar 20. You return EXACTLY: {"moves":[{"bar":17,"strip":"deckB","param":"fader","to":0.6,"beats":8},{"bar":17,"strip":"deckB","param":"low","to":0.3,"beats":4},{"bar":18,"strip":"deckA","param":"filt","to":0.68,"beats":8},{"bar":18,"strip":"deckA","param":"low","to":0.35,"beats":8},{"bar":18,"param":"xfade","to":0.65,"beats":8},{"bar":19,"strip":"deckA","param":"filt","to":0.85,"beats":4},{"bar":19,"strip":"deckA","param":"rev","to":0.35,"beats":4},{"bar":19,"strip":"pad","param":"fader","to":0.4,"beats":8},{"bar":19,"strip":"deckA","param":"dly","to":0.3,"beats":4},{"bar":20,"param":"xfade","to":0.95,"beats":2},{"bar":20,"strip":"deckB","param":"low","to":0.5,"beats":1},{"bar":20,"strip":"deckB","param":"fader","to":0.78,"beats":2},{"bar":20,"strip":"deckA","param":"fader","to":0.2,"beats":8}],"intent":"high-pass Bonobo into the turn, Tycho bass drops on 20"} Notice the craft: high-pass and wash the OUTGOING deck (filt up + rev/dly tail), trade the bass frequencies so the two never mud, ride the groups across the crossfader, and land the deckB bass on the downbeat of the drop -- staged across the bars, never all at once. THREE more principles by example: (a) RESTRAINT -- when the mix already works, the right answer is NO moves: {"moves":[],"intent":"let it ride, the groove holds"}. Do not fidget every bar; an empty moves list is a valid, often correct answer. (b) SECTION-AWARE ENTRY -- bring an incoming deck in on a LOW-density section (its intro or a break, per the manifest), never onto its own drop: {"moves":[{"bar":33,"strip":"deckB","param":"fader","to":0.5,"beats":8}],"intent":"ease deckB in on its intro"}. (c) LONG-RANGE ENERGY TURN -- after a peak, shed energy across MANY bars, never a hard cut: {"moves":[{"bar":48,"strip":"lead","param":"filt","to":0.35,"beats":8},{"bar":48,"param":"xfade","to":0.5,"beats":16}],"intent":"begin the descent, filter down, ease back to center"}.';
 function djApplyMove(mv){var sec=mv.beats*60/bpm(),tc=Math.max(0.05,sec/3);
+ var _pc=channels.get(mv.strip);if(_pc&&_pc.pinned)return;
  if(mv.param==='xfade'){animXfade(mv.to,sec);return;}
  var c=channels.get(mv.strip);if(!c)return;
  if(mv.param==='fader'){c.fader=mv.to;recomputeGains(tc);}
@@ -656,6 +729,56 @@ function djStop(reason){
  if(!dj.on)return;dj.on=false;dj.plan={};dj.requesting=false;$('djBtn').classList.remove('on');$('djBtn').textContent='AI DJ';setStatus('AI DJ off'+(reason?' -- '+reason:'')+' (undo rewinds the whole set)');}
 $('djBtn').onclick=function(){dj.on?djStop():djStart();};
 
+// ===== FEATURE 1: TRANSITION PARAM-CURVES (recipe names -> real automated moves) =====
+// A named technique is a list of bar-by-bar moves in KNOB semantics (0..1). Each move is
+// {bar, ch:'out'|'in'|'xf', param, to}. scheduleTransition resolves ch to the outgoing/
+// incoming channel ids and queues djApplyMove-shaped objects into dj.plan -- so the moves
+// ramp bars-ahead on the existing clock via djTick, never blocking the audio thread.
+var TRANSITION_CURVES={
+ bass_swap:{bars:4,moves:[{bar:0,ch:'in',param:'low',to:0.15},{bar:0,ch:'in',param:'fader',to:0.6},{bar:2,ch:'in',param:'low',to:0.35},{bar:3,ch:'in',param:'low',to:0.5},{bar:3,ch:'out',param:'low',to:0.15},{bar:0,ch:'xf',param:'',to:0.15},{bar:2,ch:'xf',param:'',to:0.4},{bar:4,ch:'xf',param:'',to:0.85},{bar:4,ch:'out',param:'fader',to:0.25}]},
+ filter_fade:{bars:8,moves:[{bar:0,ch:'out',param:'filt',to:0.5},{bar:0,ch:'in',param:'fader',to:0.5},{bar:4,ch:'out',param:'filt',to:0.2},{bar:4,ch:'in',param:'fader',to:0.7},{bar:8,ch:'out',param:'filt',to:0.05},{bar:8,ch:'in',param:'fader',to:0.85},{bar:8,ch:'xf',param:'',to:0.9}]},
+ echo_tail:{bars:16,moves:[{bar:0,ch:'out',param:'rev',to:0.0},{bar:1,ch:'out',param:'rev',to:0.85},{bar:1,ch:'out',param:'dly',to:0.3},{bar:8,ch:'out',param:'rev',to:0.5},{bar:8,ch:'in',param:'fader',to:0.6},{bar:13,ch:'out',param:'rev',to:0.15},{bar:13,ch:'out',param:'fader',to:0.3},{bar:16,ch:'out',param:'fader',to:0.15},{bar:16,ch:'in',param:'fader',to:0.9},{bar:16,ch:'xf',param:'',to:0.9}]},
+ double_drop:{bars:16,moves:[{bar:0,ch:'out',param:'low',to:0.5},{bar:2,ch:'out',param:'low',to:0.12},{bar:2,ch:'out',param:'mid',to:0.2},{bar:2,ch:'in',param:'low',to:0.12},{bar:8,ch:'xf',param:'',to:0.5},{bar:15,ch:'out',param:'low',to:0.12},{bar:16,ch:'out',param:'low',to:0.5},{bar:16,ch:'in',param:'low',to:0.9},{bar:16,ch:'xf',param:'',to:0.9},{bar:16,ch:'in',param:'fader',to:0.85}]},
+ loop_roll:{bars:8,moves:[{bar:0,ch:'out',param:'filt',to:0.5},{bar:2,ch:'out',param:'filt',to:0.25},{bar:4,ch:'out',param:'filt',to:0.15},{bar:4,ch:'in',param:'fader',to:0.6},{bar:6,ch:'out',param:'filt',to:0.5},{bar:8,ch:'xf',param:'',to:0.9},{bar:8,ch:'in',param:'fader',to:0.9}]},
+ backspin:{bars:2,moves:[{bar:0,ch:'out',param:'filt',to:0.2},{bar:1,ch:'out',param:'fader',to:0.1},{bar:1,ch:'in',param:'fader',to:0.9},{bar:2,ch:'xf',param:'',to:1.0}]},
+ half_time:{bars:16,moves:[{bar:0,ch:'out',param:'low',to:0.5},{bar:1,ch:'out',param:'low',to:0.75},{bar:1,ch:'out',param:'mid',to:0.4},{bar:8,ch:'in',param:'fader',to:0.6},{bar:16,ch:'out',param:'fader',to:0.15},{bar:16,ch:'in',param:'fader',to:0.9},{bar:16,ch:'xf',param:'',to:0.9}]}
+};
+// energy-delta matrix -> technique band. If a genre lists preferred transitions (.tr),
+// prefer one that is also a real curve; else fall through to the matrix pick. The recipe
+// deck (nextRecipe) adds variety -- its dealt name maps onto the closest technique.
+var ENERGY_TECH={'2':'double_drop','1':'bass_swap','0':'loop_roll','-1':'filter_fade','-2':'echo_tail'};
+var RECIPE_TECH={'filter-wash':'filter_fade','bass-swap-drop':'bass_swap','double-drop':'double_drop','drone-dissolve':'echo_tail','breakdown-rebuild':'filter_fade','key-lift':'loop_roll','loop-roll':'loop_roll','tempo-drift':'half_time','backspin-cut':'backspin','echo-out':'echo_tail','sidechain-pump':'bass_swap','half-time-feel':'half_time'};
+function pickTechnique(energyDelta,genre){
+ var band=Math.max(-2,Math.min(2,Math.round(energyDelta||0)));
+ var base=ENERGY_TECH[String(band)]||'loop_roll';
+ if(genre&&genre.tr&&genre.tr.length){for(var i=0;i<genre.tr.length;i++){var t=genre.tr[i];if(TRANSITION_CURVES[t]){base=t;break;}}}
+ try{var rn=nextRecipe();var rt=RECIPE_TECH[rn];if(rt&&TRANSITION_CURVES[rt]&&(!genre||!genre.tr||!genre.tr.length))base=rt;}catch(e){}
+ return base;
+}
+function scheduleTransition(outId,inId,technique,startBar){
+ var spec=TRANSITION_CURVES[technique];if(!spec)return false;
+ var outCh=channels.get(outId),inCh=channels.get(inId);
+ // never target a pinned channel (Feature 3); xfade moves have no strip and still apply
+ if(outCh&&outCh.pinned)return false;if(inCh&&inCh.pinned)return false;
+ spec.moves.forEach(function(m){
+  var bar=startBar+m.bar,isX=(m.ch==='xf');
+  var chId=isX?null:(m.ch==='out'?outId:inId);
+  if(!isX&&!channels.get(chId))return;
+  var mv={bar:bar,strip:isX?null:chId,param:(isX?'xfade':m.param),to:m.to,beats:2};
+  (dj.plan[bar]=dj.plan[bar]||[]).push(mv);
+ });
+ // the deterministic curve runs only while the AI DJ performance is on (the caller gates
+ // on dj.on) and does NOT force dj.on -- so a human grab is never re-hijacked by a later
+ // auto track-load. Ensure the clock is scheduling (startClock is idempotent).
+ if(started)startClock();
+ // the curve OWNS its window: hold AI DJ requests until it completes, and mark the horizon
+ // planned so djTick does not backfill over the transition (the two would fight otherwise).
+ if(dj.plannedThrough<startBar+spec.bars)dj.plannedThrough=startBar+spec.bars;
+ var endBeat=(startBar+spec.bars+1)*4;if(dj.coolUntil<endBeat)dj.coolUntil=endBeat;
+ cvLog('transition: '+technique+' ('+spec.bars+' bars)','n');
+ return true;
+}
+
 // ===== CONDUCTOR MODE (Phase 4): chat intent -> plan -> synth beds + AI DJ =====
 // Full-AI posture. Reuses aiChat/parseAiJson/aiBusy, the composer synth voices
 // (ensureComposer/composerNote), and the AI DJ engine. Rights-clean synth beds
@@ -663,7 +786,7 @@ $('djBtn').onclick=function(){dj.on?djStop():djStart();};
 // the grabber keyword lane when live and degrades honestly when it is not
 // (the grabber q=/analyze= lane is Phase 1 of the plan, deploy-gated).
 var conductorMode=false;
-var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,keyBias:null,recipeBias:null,energyDir:0,genres:[],beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
+var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,keyBias:null,recipeBias:null,energyDir:0,genres:[],beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[],nowPlaying:null};
 function conductorAdvanceKey(){var code=nextKey();var kk=CAMELOT_TO_KEY[code];if(!kk)return;setSessionKey(kk.pc,kk.scale);cvLog('key walk -> '+code+' ('+PITCHES[kk.pc]+' '+kk.scale+')','n');}
 var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],pentatonic:[0,2,4,7,9]};
 var NOTEBASE={c:0,'c#':1,db:1,d:2,'d#':3,eb:3,e:4,f:5,'f#':6,gb:6,g:7,'g#':8,ab:8,a:9,'a#':10,bb:10,b:11};
@@ -788,7 +911,19 @@ var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web
 function auditSpine(plan){var raw=Array.isArray(plan.arc)?plan.arc:[];if(!raw.length)raw=[{phase:'flow',bars:32,density:0.5,focus:'steady groove'}];var n=raw.length;return raw.map(function(a,i){var dens=(typeof a.density==='number')?Math.max(0,Math.min(1,a.density)):Math.round((0.3+0.55*(i/Math.max(1,n-1)))*100)/100;var q=Array.isArray(a.queries)?a.queries.filter(function(x){return typeof x==='string'&&x.length>1;}).slice(0,3):[];if(!q.length&&Array.isArray(plan.queries))q=plan.queries.slice(i,i+2);return {phase:String(a.phase||('block'+(i+1))).slice(0,24),bars:Math.max(4,Math.min(512,parseInt(a.bars,10)||32)),density:dens,focus:String(a.focus||'').slice(0,80),queries:q};});}
 // load one pre-filtered candidate (Camelot-legal + density-in-band + fresh) into the mix,
 // tempo+key-locked to the current walk key. The beds cover any gap before it lands.
-function conductorLoadNext(){if(!conductor.on)return null;var cands=preFilter(stepper.key,conductor.densLo,conductor.densHi,8);if(!cands.length)return null;var pick=cands[Math.floor(stepper.rng()*cands.length)];markTrack(pick.id);var kk=CAMELOT_TO_KEY[pick.camelot]||{};var ch=addFileChannel(pick.url,pick.title);ch.manifest={schema:'dragon-mix-manifest/1',tempo:{bpm:pick.bpm,beatless:pick.beatless},key:pick.camelot?{camelot:pick.camelot,pitch_class:kk.pc,scale:kk.scale}:null};attachManifest(ch,ch.manifest);cvLog('bring in: '+pick.title+' ('+(pick.camelot||'?')+')','n');return ch;}
+function conductorLoadNext(){if(!conductor.on)return null;var cands=preFilter(stepper.key,conductor.densLo,conductor.densHi,8);if(!cands.length)return null;var pick=cands[Math.floor(stepper.rng()*cands.length)];markTrack(pick.id);var kk=CAMELOT_TO_KEY[pick.camelot]||{};
+ // Feature 1: the previously-playing external track becomes the outgoing deck; the new
+ // channel is the incoming. Loop + bed + pinned channels are NEVER touched as out/in.
+ var prevCh=channels.get(conductor.nowPlaying);
+ var ch=addFileChannel(pick.url,pick.title);ch.manifest={schema:'dragon-mix-manifest/1',tempo:{bpm:pick.bpm,beatless:pick.beatless},key:pick.camelot?{camelot:pick.camelot,pitch_class:kk.pc,scale:kk.scale}:null};attachManifest(ch,ch.manifest);cvLog('bring in: '+pick.title+' ('+(pick.camelot||'?')+')','n');
+ if(dj.on&&prevCh&&prevCh.type==='file'&&!prevCh.isLoop&&!prevCh.pinned&&!ch.isLoop&&!ch.pinned){
+  ch.fader=0.03;recomputeGains();
+  var curBar=Math.max(0,Math.floor(beatCount/4));
+  var tech=pickTechnique(conductor.energyDir*2,conductor.genres[0]);
+  scheduleTransition(prevCh.id,ch.id,tech,curBar+2);
+ }
+ conductor.nowPlaying=ch.id;
+ return ch;}
 // movement advance: at a block boundary, update focus/density, prefetch the NEXT block, load a track
 function conductorCheckMovement(setBar){var bl=conductor.blocks;if(!bl||!bl.length)return;var idx=conductor.blockIdx;if(idx<bl.length-1&&setBar>=conductor.blockStarts[idx+1]){conductor.blockIdx=++idx;var blk=bl[idx];var pd=bl[idx-1]?bl[idx-1].density:blk.density;conductor.energyDir=(blk.density>pd)?1:(blk.density<pd?-1:0);dj.intents=[blk.phase+': '+blk.focus];conductor.densLo=Math.max(0,blk.density-0.12);conductor.densHi=Math.min(1,blk.density+0.12);cvLog('movement '+(idx+1)+'/'+bl.length+': '+blk.phase+' (energy '+blk.density+') -- '+blk.focus,'n');var nxt=bl[idx+1];if(nxt&&nxt.queries&&nxt.queries.length)prefetchQueries(nxt.queries,3).then(function(){if(conductor.on)conductorLoadNext();});else conductorLoadNext();}}
 async function conductorPlan(){
@@ -930,6 +1065,7 @@ $('capBtn').onclick=captureSource;
 $('fileBtn').onclick=function(){$('fileInput').click();};
 $('llBtn').onclick=liveLoopInput;
 $('llArm').onclick=armLoopCapture;
+$('llAI').onclick=function(){liveIn.mode=(liveIn.mode==='AI'?'human':'AI');var b=$('llAI');b.textContent=liveIn.mode;b.classList.toggle('on',liveIn.mode==='AI');if(liveIn.mode==='AI'){if(!started)startAudio();aiLoopStart();}else aiLoopStop();};
 $('urlBtn').onclick=loadUrl;
 $('grabBtn').onclick=grabYouTube;
 $('clockBtn').onclick=function(){clockOn=!clockOn;$('clockBtn').classList.toggle('on',clockOn);if(clockOn){if(!started)startAudio();startClock();}else stopClock();};
