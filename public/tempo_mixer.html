@@ -103,7 +103,7 @@ body.embed #cvIntent,body.embed #cvGo,body.embed #cvStop,body.embed #cvLog{displ
     <div class="clock">
       <span class="tdim">bpm</span><span class="bpm" id="bpmReadout">100</span>
       <input type="number" id="bpm" value="100" min="40" max="220" style="width:54px">
-      <button class="tbtn" id="clockBtn">clock</button>
+      <button class="tbtn" id="clockBtn">clock</button><button class="tbtn" id="recBtn" title="record the master output to a downloadable .wav">rec</button>
       <button class="tbtn" id="resyncBtn">re-sync</button>
       <span class="tdim">key</span><select class="x" id="sessionKey" title="session key -- grabs pitch-shift to it (auto adopts the first analyzed grab)"><option value="auto">auto</option></select>
     </div>
@@ -122,6 +122,7 @@ body.embed #cvIntent,body.embed #cvGo,body.embed #cvStop,body.embed #cvLog{displ
       <input class="x" id="llBars" type="number" value="4" min="1" max="16" style="width:42px" title="loop length in bars">
       <button class="tbtn" id="llArm" title="arm -- capture begins on the next bar downbeat">arm loop</button>
       <button class="tbtn" id="llAI" title="AI mode -- generate + evolve a melodic loop from the internal synth stack on the phrase grid (no mic)">human</button>
+      <button class="tbtn" id="llCal" title="calibrate mic-to-speaker latency for tight loops">cal</button>
     </span>
     <input class="x" id="urlIn" placeholder="media url" style="width:140px"><button class="tbtn" id="urlBtn">load url</button>
     <button class="tbtn" id="ytBtn">add from YouTube...</button>
@@ -249,7 +250,7 @@ function syncMasterUI(v){var ms=$('masterStrip');if(ms){var f=ms.querySelector('
 var SCHED_AHEAD=0.15,SCHED_TICK=25,schedTimer=null,nextBeatTime=0;
 function startClock(){if(!started)return;if(schedTimer)return;nextBeatTime=ctx.currentTime+0.06;schedTimer=setInterval(clockScheduler,SCHED_TICK);}
 function stopClock(){if(schedTimer){clearInterval(schedTimer);schedTimer=null;}}
-function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));if(liveIn.armed&&b===0)beginLoopCapture();if(aiLoop.on){var _bar=Math.floor(beatCount/4),_q=spb/4;for(var _i=0;_i<4;_i++)aiLoopTick(nextBeatTime+_i*_q,b*4+_i,_bar);}nextBeatTime+=spb;}}
+function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}if(conductor.walkOn&&beatCount>conductor.walkStartBeat&&(beatCount-conductor.walkStartBeat)%conductor.blockBeats===0)conductorAdvanceKey();if(conductor.walkOn&&b===0)conductorCheckMovement(Math.floor((beatCount-conductor.walkStartBeat)/4));if(liveIn.armed&&b===0)beginLoopCapture();if(b===0)loopFxTick();if(aiLoop.on){var _bar=Math.floor(beatCount/4),_q=spb/4;for(var _i=0;_i<4;_i++)aiLoopTick(nextBeatTime+_i*_q,b*4+_i,_bar);}nextBeatTime+=spb;}}
 function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio){try{ch.audio.currentTime=0;}catch(e){}}});if(loopBuffer)restartLoop();setStatus('re-synced');}
 
 function handleBus(m){if(!m||!m.type)return;if(m.type==='hello')ensureComposer(m.id,m.name);else if(m.type==='bye')removeChannel(m.id);else if(m.type==='note'){var ch=ensureComposer(m.id,m.name);composerNote(ch,m.note|0,m.vel||100,m.dur||0.4);}}
@@ -357,46 +358,82 @@ async function captureSource(){if(!started)startAudio();var st;try{st=await navi
 // Rides the unified clock (Phase 0): capture begins on a bar downbeat and runs exactly
 // N bars, so the loop is seamless + in phase with beds/tracks. The live input is NEVER
 // routed to master -> no feedback; only the captured loops (as channels) are heard.
-var liveIn={stream:null,src:null,proc:null,sink:null,armed:false,bars:4,capturing:false,L:[],R:[],target:0,mode:'human'};var loopCount=0;
-async function liveLoopInput(){if(!started)startAudio();if(liveIn.src){var rr=$('llRow');rr.style.display=(rr.style.display==='none'?'inline-flex':'none');return;}var st;try{st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});}catch(e){setStatus('live input denied: '+(e.message||e));return;}liveIn.stream=st;liveIn.src=ctx.createMediaStreamSource(st);liveIn.proc=ctx.createScriptProcessor(4096,2,2);liveIn.sink=ctx.createGain();liveIn.sink.gain.value=0;liveIn.src.connect(liveIn.proc);liveIn.proc.connect(liveIn.sink);liveIn.sink.connect(ctx.destination);liveIn.proc.onaudioprocess=function(e){if(!liveIn.capturing)return;var ib=e.inputBuffer,l=ib.getChannelData(0),r=ib.numberOfChannels>1?ib.getChannelData(1):l;liveIn.L.push(new Float32Array(l));liveIn.R.push(new Float32Array(r));var h=0;for(var i=0;i<liveIn.L.length;i++)h+=liveIn.L[i].length;if(h>=liveIn.target)finishLoopCapture();};$('llBtn').classList.add('on');$('llRow').style.display='inline-flex';setStatus('live input connected -- set bars + arm (headphones advised)');}
+var liveIn={stream:null,src:null,proc:null,sink:null,armed:false,bars:4,capturing:false,L:[],R:[],target:0,mode:'human',cal:null,calSec:null};var loopCount=0;
+async function liveLoopInput(){if(!started)startAudio();if(liveIn.src){var rr=$('llRow');rr.style.display=(rr.style.display==='none'?'inline-flex':'none');return;}var st;try{st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});}catch(e){setStatus('live input denied: '+(e.message||e));return;}liveIn.stream=st;liveIn.src=ctx.createMediaStreamSource(st);liveIn.proc=ctx.createScriptProcessor(4096,2,2);liveIn.sink=ctx.createGain();liveIn.sink.gain.value=0;liveIn.src.connect(liveIn.proc);liveIn.proc.connect(liveIn.sink);liveIn.sink.connect(ctx.destination);liveIn.proc.onaudioprocess=function(e){if(liveIn.cal&&liveIn.cal.on){var _m=e.inputBuffer.getChannelData(0);liveIn.cal.frames.push(new Float32Array(_m));liveIn.cal.got+=_m.length;if(liveIn.cal.got>=ctx.sampleRate*0.5)finishCalibration();return;}if(!liveIn.capturing)return;var ib=e.inputBuffer,l=ib.getChannelData(0),r=ib.numberOfChannels>1?ib.getChannelData(1):l;liveIn.L.push(new Float32Array(l));liveIn.R.push(new Float32Array(r));var h=0;for(var i=0;i<liveIn.L.length;i++)h+=liveIn.L[i].length;if(h>=liveIn.target)finishLoopCapture();};$('llBtn').classList.add('on');$('llRow').style.display='inline-flex';setStatus('live input connected -- set bars + arm (headphones advised)');}
 function armLoopCapture(){if(!liveIn.src){liveLoopInput();return;}liveIn.bars=Math.max(1,Math.min(16,parseInt($('llBars').value,10)||4));liveIn.armed=true;$('llArm').classList.add('on');if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');startClock();}setStatus('armed -- capturing '+liveIn.bars+' bars on the next downbeat');}
 function beginLoopCapture(){liveIn.armed=false;liveIn.capturing=true;liveIn.L=[];liveIn.R=[];liveIn.target=Math.round(liveIn.bars*4*(60/bpm())*ctx.sampleRate);$('llArm').classList.remove('on');setStatus('capturing '+liveIn.bars+' bars...');}
-function finishLoopCapture(){if(!liveIn.capturing)return;liveIn.capturing=false;var l=flatten(liveIn.L),r=flatten(liveIn.R);liveIn.L=[];liveIn.R=[];if(!l.length)return;var lat=Math.round((((ctx.baseLatency||0)+(ctx.outputLatency||0)))*ctx.sampleRate);if(lat>0&&lat<l.length){l=l.subarray(lat);r=r.subarray(lat);}var n=Math.min(l.length,liveIn.target||l.length);var buf=ctx.createBuffer(2,n,ctx.sampleRate);buf.getChannelData(0).set(l.subarray(0,n));buf.getChannelData(1).set(r.subarray(0,n));var id='loop-'+Math.random().toString(36).slice(2,6);var node=ctx.createBufferSource();node.buffer=buf;node.loop=true;var ch=buildChannel({id:id,type:'file',name:'Loop '+(++loopCount),color:COLS[order.length%COLS.length],head:node,group:null});ch.isLoop=true;node.start();ch.srcBPM=bpm();setStatus('loop layered: '+(n/ctx.sampleRate).toFixed(2)+'s ('+liveIn.bars+' bars) -- looping in phase');}
+function finishLoopCapture(){if(!liveIn.capturing)return;liveIn.capturing=false;var l=flatten(liveIn.L),r=flatten(liveIn.R);liveIn.L=[];liveIn.R=[];if(!l.length)return;var lat=Math.round((liveIn.calSec!=null?liveIn.calSec:((ctx.baseLatency||0)+(ctx.outputLatency||0)))*ctx.sampleRate);if(lat>0&&lat<l.length){l=l.subarray(lat);r=r.subarray(lat);}var n=Math.min(l.length,liveIn.target||l.length);var buf=ctx.createBuffer(2,n,ctx.sampleRate);buf.getChannelData(0).set(l.subarray(0,n));buf.getChannelData(1).set(r.subarray(0,n));var id='loop-'+Math.random().toString(36).slice(2,6);var node=ctx.createBufferSource();node.buffer=buf;node.loop=true;var ch=buildChannel({id:id,type:'file',name:'Loop '+(++loopCount),color:COLS[order.length%COLS.length],head:node,group:null});ch.isLoop=true;ch.fxAuto=true;ch.fxSeed=Math.random()*1000;node.start();ch.srcBPM=bpm();setStatus('loop layered: '+(n/ctx.sampleRate).toFixed(2)+'s ('+liveIn.bars+' bars) -- looping in phase');}
+// ----- per-loop autonomous FX drift: the looper gets its OWN filter+reverb movement,
+// independent of the AI DJ, once per bar. A PINNED loop is left alone (human owns it). -----
+function loopFxTick(){var bar=Math.floor(beatCount/4);channels.forEach(function(ch){if(!ch.fxAuto||ch.pinned)return;var ph=ch.fxSeed||0;ch.k.filt=Math.max(0.15,Math.min(0.85,0.5+0.28*Math.sin(bar*0.13+ph)));ch.k.rev=Math.max(0,Math.min(0.55,0.2+0.18*(0.5+0.5*Math.sin(bar*0.07+ph*1.7))));applyKnob(ch,'filt',ch.k.filt,0.9);applyKnob(ch,'rev',ch.k.rev,0.9);});}
+// ----- mic latency calibration for HUMAN loop mode: click through master, hear it back on
+// the mic, measure the round trip, store it so captured loops sit exactly on the bar. -----
+function calibrateLatency(){if(!started)startAudio();if(!liveIn.src){setStatus('connect the live input (mic) first -- click loop input');return;}liveIn.cal={on:true,frames:[],got:0};var osc=ctx.createOscillator(),g=ctx.createGain();osc.type='square';osc.frequency.value=2500;g.gain.value=0.0001;osc.connect(g);g.connect(master);var t=ctx.currentTime+0.2;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.7,t+0.002);g.gain.exponentialRampToValueAtTime(0.0001,t+0.02);osc.start(t);osc.stop(t+0.04);setStatus('calibrating -- keep the mic near the speakers for a moment...');}
+function finishCalibration(){var c=liveIn.cal;liveIn.cal=null;if(!c)return;var sr=ctx.sampleRate,tot=0;c.frames.forEach(function(f){tot+=f.length;});var buf=new Float32Array(tot),o=0;c.frames.forEach(function(f){buf.set(f,o);o+=f.length;});var peak=0,pi=0;for(var i=0;i<buf.length;i++){var a=Math.abs(buf[i]);if(a>peak){peak=a;pi=i;}}if(peak<0.02){setStatus('calibration: no click heard -- raise volume or move the mic closer; using default trim');return;}var lat=Math.max(0.005,Math.min(0.3,pi/sr-0.2));liveIn.calSec=lat;setStatus('latency calibrated: '+Math.round(lat*1000)+' ms -- loops will trim this');}
+// ----- record the master output to a downloadable .wav (16-bit PCM stereo) -----
+var rec={on:false,proc:null,sink:null,L:[],R:[]};
+function recStart(){if(!started)startAudio();if(rec.on)return;rec.L=[];rec.R=[];rec.proc=ctx.createScriptProcessor(4096,2,2);rec.sink=ctx.createGain();rec.sink.gain.value=0;master.connect(rec.proc);rec.proc.connect(rec.sink);rec.sink.connect(ctx.destination);rec.proc.onaudioprocess=function(e){if(!rec.on)return;var ib=e.inputBuffer;rec.L.push(new Float32Array(ib.getChannelData(0)));rec.R.push(new Float32Array(ib.numberOfChannels>1?ib.getChannelData(1):ib.getChannelData(0)));};rec.on=true;var b=$('recBtn');if(b){b.classList.add('on');b.textContent='stop';}setStatus('recording master to WAV...');}
+function recStop(){if(!rec.on)return;rec.on=false;try{master.disconnect(rec.proc);}catch(e){}try{rec.proc.disconnect();}catch(e){}try{rec.sink.disconnect();}catch(e){}var L=flatten(rec.L),R=flatten(rec.R);rec.L=[];rec.R=[];var b=$('recBtn');if(b){b.classList.remove('on');b.textContent='rec';}if(!L.length){setStatus('nothing recorded');return;}var blob=encodeWAV(L,R,ctx.sampleRate);var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='dragon-mix-'+Date.now()+'.wav';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(url);a.remove();},1500);setStatus('WAV saved: '+(L.length/ctx.sampleRate).toFixed(1)+'s master recording');}
+function encodeWAV(L,R,sr){var n=Math.min(L.length,R.length),buf=new ArrayBuffer(44+n*4),v=new DataView(buf);function ws(o,str){for(var i=0;i<str.length;i++)v.setUint8(o+i,str.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+n*4,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,2,true);v.setUint32(24,sr,true);v.setUint32(28,sr*4,true);v.setUint16(32,4,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,n*4,true);var o=44;for(var i=0;i<n;i++){var l=Math.max(-1,Math.min(1,L[i])),r=Math.max(-1,Math.min(1,R[i]));v.setInt16(o,(l<0?l*0x8000:l*0x7FFF)|0,true);o+=2;v.setInt16(o,(r<0?r*0x8000:r*0x7FFF)|0,true);o+=2;}return new Blob([buf],{type:'audio/wav'});}
 
 // ===== FEATURE 2: AI-MODE LIVE LOOPER (generative pattern from the synth stack) =====
 // The live-loop mode gets a human/AI toggle. AI mode GENERATES a melodic loop from the
 // internal composer voices (not a mic) and EVOLVES it on the phrase grid -- a raga-style
 // pattern that updates at the phrase interval. It is a normal composer channel, so it is
 // mixable, FX-able, and (Feature 3) pin-able.
-var RAGA_SCALES={bhairav:[0,1,4,5,7,8,11],yaman:[0,2,4,6,7,9,11]};
-var aiLoop={on:false,pattern:[],scale:[0,2,3,5,7,8,10],root:57,evolveBars:8,step:0,lastEvolveBar:-1,gen:0};
-function aiLoopScale(){
- var intent=(($('cvIntent')&&$('cvIntent').value)||'').toLowerCase();
- var genres=(conductor.genres||[]);
- var raga=(intent.indexOf('raga')>=0)||genres.some(function(g){return g.n==='raga';});
- if(raga)return (_rng()<0.5?RAGA_SCALES.bhairav:RAGA_SCALES.yaman).slice();
- if(conductor.scale&&conductor.scale.length)return conductor.scale.slice();
- return SCALES.minor.slice();
+// The looper covers ANY style: scale + melodic contour come from a style table repurposed
+// from the ghatika engine (scales/modes/ragas x scale/arp/melody/fifths/raga patterns),
+// chosen from the chat intent or the conductor genre. 'raga' was just one entry.
+var AILOOP_STYLES=[
+ {k:['raga','indian','sitar','hindustani','carnatic'],name:'raga',scale:'bhairav',pat:'raga',oct:1,dens:0.5,timbre:'triangle'},
+ {k:['yaman','evening'],name:'raga yaman',scale:'yaman',pat:'raga',oct:1,dens:0.5,timbre:'triangle'},
+ {k:['trance','uplifting','arp','arpeggio'],name:'trance arp',scale:'minor',pat:'arp',oct:1,dens:0.75,timbre:'saw'},
+ {k:['dubstep','riddim','wobble','growl','dub'],name:'bass growl',scale:'phrygian',pat:'melody',oct:0,dens:0.4,timbre:'square'},
+ {k:['deep house','house','tech','techno'],name:'house',scale:'dorian',pat:'melody',oct:1,dens:0.6,timbre:'triangle'},
+ {k:['jazz','blues','swing','soul'],name:'blues',scale:'blues',pat:'melody',oct:1,dens:0.5,timbre:'fm'},
+ {k:['prog','psych','rock'],name:'prog',scale:'mixolydian',pat:'fifths',oct:1,dens:0.5,timbre:'saw'},
+ {k:['lydian','dream','bright','sunny','major'],name:'bright',scale:'lydian',pat:'scale',oct:1,dens:0.5,timbre:'triangle'},
+ {k:['dark','moody','night'],name:'dark',scale:'phrygian',pat:'melody',oct:1,dens:0.5,timbre:'square'},
+ {k:['penta','folk','east asian','oriental'],name:'penta',scale:'pentMinor',pat:'melody',oct:1,dens:0.45,timbre:'pluck'},
+ {k:['ambient','drone','meditative','calm'],name:'ambient',scale:'pentMajor',pat:'scale',oct:2,dens:0.3,timbre:'triangle'}
+];
+var aiLoop={on:false,pattern:[],scale:[0,2,3,5,7,8,10],root:57,oct:1,evolveBars:8,step:0,lastEvolveBar:-1,gen:0,styleName:'session'};
+function aiLoopStyleFor(){
+ var t=(($('cvIntent')&&$('cvIntent').value)||'').toLowerCase();
+ for(var i=0;i<AILOOP_STYLES.length;i++){for(var j=0;j<AILOOP_STYLES[i].k.length;j++){if(t.indexOf(AILOOP_STYLES[i].k[j])>=0)return AILOOP_STYLES[i];}}
+ var g=(conductor.genres&&conductor.genres[0]);
+ if(g)return {name:g.n,useSession:true,pat:(g.e&&g.e[1]>0.7?'arp':'melody'),oct:1,dens:(g.e?g.e[1]:0.5),timbre:(g.mode==='B'?'triangle':'saw')};
+ return {name:'session',useSession:true,pat:'melody',oct:1,dens:0.5,timbre:'triangle'};
 }
-function aiLoopSeed(scale){
- // 8-16 sparse, in-scale events over a 16-step (one bar) grid; degrees index into scale.
- var pat=[],want=8+Math.floor(_rng()*8),used={};
- for(var i=0;i<want;i++){
-  var st=Math.floor(_rng()*16);if(used[st]){continue;}used[st]=1;
-  var deg=Math.floor(_rng()*scale.length*2);
-  var vel=64+Math.floor(_rng()*48);
-  pat.push({step16:st,deg:deg,vel:vel});
+// ghatika-style melodic sequence: n scale-DEGREES shaped by the pattern type
+function aiMelSeq(pat,scLen,n,R){
+ var out=[],deg=0,dir=1,arp=0,cur=0,base=0,cnt=0;
+ var arpDeg=[0,2,4,scLen,scLen+2],moves=[-2,-1,-1,1,1,2,0,3,-3];
+ for(var i=0;i<n;i++){
+  if(pat==='arp'){out.push(arpDeg[arp%arpDeg.length]);arp++;}
+  else if(pat==='fifths'){var tr=[0,2,4];out.push(cur+tr[arp%3]);arp++;cnt++;if(cnt%4===0)cur=base+((cur-base+2)%scLen);}
+  else if(pat==='melody'){deg+=moves[Math.floor(R()*moves.length)];if(deg>scLen*2)deg=scLen*2-1;if(deg<0)deg=0;out.push(deg);}
+  else{out.push(deg);if(pat==='raga'&&R()<0.28){deg=0;dir=1;}else{deg+=dir;if(deg>=scLen*2){deg=scLen*2-1;dir=-1;}if(deg<0){deg=1;dir=1;}}}
  }
- pat.sort(function(a,b){return a.step16-b.step16;});
+ return out;
+}
+function aiLoopSeed(style,sc){
+ var want=Math.max(4,Math.min(15,Math.round(5+(style.dens||0.5)*9)));
+ var steps=[],used={};
+ for(var i=0;i<want;i++){var st=(style.pat==='arp'||style.pat==='fifths')?Math.round(i*16/want)%16:Math.floor(_rng()*16);var guard=0;while(used[st]&&guard<16){st=(st+1)%16;guard++;}if(used[st])continue;used[st]=1;steps.push(st);}
+ steps.sort(function(a,b){return a-b;});
+ var degs=aiMelSeq(style.pat,sc.length,steps.length,_rng);
+ var pat=[];for(var j=0;j<steps.length;j++){pat.push({step16:steps[j],deg:Math.max(0,degs[j]||0),vel:64+Math.floor(_rng()*48)});}
  return pat;
 }
 function aiLoopStart(){
- var ch=ensureComposer('ailoop','~ai loop');ch.timbre='triangle';ch.isLoop=true;
- var scale=aiLoopScale();
- aiLoop={on:true,pattern:aiLoopSeed(scale),scale:scale,root:conductor.root||57,evolveBars:(conductor.genres[0]?conductor.genres[0].ph:8),step:0,lastEvolveBar:-1,gen:0};
+ var style=aiLoopStyleFor();
+ var sc=style.useSession?((conductor.scale&&conductor.scale.length)?conductor.scale.slice():SCALES.minor):(SCALES[style.scale]||SCALES.minor);
+ var ch=ensureComposer('ailoop','~ai loop');ch.timbre=style.timbre||'triangle';ch.isLoop=true;ch.fxAuto=true;ch.fxSeed=(_rng()*1000);
+ aiLoop={on:true,pattern:aiLoopSeed(style,sc),scale:sc,root:conductor.root||57,oct:style.oct||1,evolveBars:(conductor.genres[0]?conductor.genres[0].ph:8),step:0,lastEvolveBar:-1,gen:0,styleName:style.name};
  if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');}
  if(started)startClock();
- cvLog('ai loop live -- '+aiLoop.pattern.length+' notes, evolves every '+aiLoop.evolveBars+' bars','n');
+ cvLog('ai loop live -- style '+style.name+', '+aiLoop.pattern.length+' notes, evolves every '+aiLoop.evolveBars+' bars','n');
 }
 function aiLoopStop(){aiLoop.on=false;cvLog('ai loop stopped','n');}
 // EVOLVE: Markov-mutate each event by scale DEGREE (same 0.4, +1/-1 0.2 each, +2/-2 0.2),
@@ -424,7 +461,7 @@ function aiLoopTick(when,step16,barAbs){
  aiLoop.pattern.forEach(function(e){
   if(e.step16!==step16)return;
   var oct=Math.floor(e.deg/sc.length)*12;
-  var midi=root+12+oct+sc[e.deg%sc.length];
+  var midi=root+12*(aiLoop.oct||1)+oct+sc[e.deg%sc.length];
   composerNote(ch,midi,e.vel,dur,when);
  });
  if(step16===0&&aiLoop.evolveBars>0&&barAbs!==aiLoop.lastEvolveBar&&(barAbs%aiLoop.evolveBars===0)&&barAbs>0){
@@ -786,9 +823,9 @@ function scheduleTransition(outId,inId,technique,startBar){
 // the grabber keyword lane when live and degrades honestly when it is not
 // (the grabber q=/analyze= lane is Phase 1 of the plan, deploy-gated).
 var conductorMode=false;
-var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,keyBias:null,recipeBias:null,energyDir:0,genres:[],beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[],nowPlaying:null};
+var conductor={on:false,bedsOn:false,walkOn:false,blockBeats:128,walkStartBeat:0,seed:0,blocks:[],blockIdx:0,blockStarts:[0],densLo:0,densHi:1,keyBias:null,recipeBias:null,energyDir:0,genres:[],beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[],nowPlaying:null,halfBridge:false};
 function conductorAdvanceKey(){var code=nextKey();var kk=CAMELOT_TO_KEY[code];if(!kk)return;setSessionKey(kk.pc,kk.scale);cvLog('key walk -> '+code+' ('+PITCHES[kk.pc]+' '+kk.scale+')','n');}
-var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],pentatonic:[0,2,4,7,9]};
+var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],lydian:[0,2,4,6,7,9,11],locrian:[0,1,3,5,6,8,10],pentatonic:[0,2,4,7,9],pentMajor:[0,2,4,7,9],pentMinor:[0,3,5,7,10],blues:[0,3,5,6,7,10],bhairav:[0,1,4,5,7,8,11],yaman:[0,2,4,6,7,9,11],bhairavi:[0,1,3,5,7,8,10],kafi:[0,2,3,5,7,9,10]};
 var NOTEBASE={c:0,'c#':1,db:1,d:2,'d#':3,eb:3,e:4,f:5,'f#':6,gb:6,g:7,'g#':8,ab:8,a:9,'a#':10,bb:10,b:11};
 var BEDTIMBRE={bass:'sawtooth',pad:'triangle',drone:'sine',lead:'square',arp:'square'};
 function cvLog(msg,cls){var l=$('cvLog');if(!l)return;var d=document.createElement('div');if(cls)d.className=cls;d.textContent=msg;l.appendChild(d);l.scrollTop=l.scrollHeight;toShell('narrate',{line:msg,cls:cls||''});}
@@ -915,7 +952,7 @@ function conductorLoadNext(){if(!conductor.on)return null;var cands=preFilter(st
  // Feature 1: the previously-playing external track becomes the outgoing deck; the new
  // channel is the incoming. Loop + bed + pinned channels are NEVER touched as out/in.
  var prevCh=channels.get(conductor.nowPlaying);
- var ch=addFileChannel(pick.url,pick.title);ch.manifest={schema:'dragon-mix-manifest/1',tempo:{bpm:pick.bpm,beatless:pick.beatless},key:pick.camelot?{camelot:pick.camelot,pitch_class:kk.pc,scale:kk.scale}:null};attachManifest(ch,ch.manifest);cvLog('bring in: '+pick.title+' ('+(pick.camelot||'?')+')','n');
+ var ch=addFileChannel(pick.url,pick.title);ch.manifest={schema:'dragon-mix-manifest/1',tempo:{bpm:pick.bpm,beatless:pick.beatless},key:pick.camelot?{camelot:pick.camelot,pitch_class:kk.pc,scale:kk.scale}:null};attachManifest(ch,ch.manifest);if(conductor.halfBridge){ch.match=true;if(ch.stretched||stretchEligible(ch))syncStretch(ch);else applyRate(ch);}cvLog('bring in: '+pick.title+' ('+(pick.camelot||'?')+')','n');
  if(dj.on&&prevCh&&prevCh.type==='file'&&!prevCh.isLoop&&!prevCh.pinned&&!ch.isLoop&&!ch.pinned){
   ch.fader=0.03;recomputeGains();
   var curBar=Math.max(0,Math.floor(beatCount/4));
@@ -944,7 +981,7 @@ async function conductorPlan(){
  if(!conductor.seed)conductor.seed=(Math.floor(performance.now()*1000))>>>0;
  stepperReset(keyNameToCamelot(plan.session_key)||'8A',conductor.seed);conductor.walkOn=true;conductor.walkStartBeat=beatCount;SESSION.auto=false;
  cvLog('harmonic walk armed from '+(keyNameToCamelot(plan.session_key)||'8A')+' -- key steps every '+(conductor.blockBeats/4)+' bars','n');
- conductor.genres=genresIn(intent);if(conductor.genres.length){var _lo=Math.min.apply(null,conductor.genres.map(function(g){return g.bpm[0];}));var _hi=Math.max.apply(null,conductor.genres.map(function(g){return g.bpm[1];}));var _g0=conductor.genres[0];if(_g0.mode)conductor.keyBias=_g0.mode;var _cur=bpm();if(_cur<_lo||_cur>_hi){var _nb=Math.round((_lo+_hi)/2);$('bpm').value=_nb;$('bpmReadout').textContent=_nb;refreshRates();}var _ht=(conductor.genres.length>1&&(_hi-_lo>30)&&conductor.genres.some(function(g){return g.half;}))?' -- half-time bridge (a drop can sit at 1/2 tempo under the slower genre)':'';cvLog('genre: '+conductor.genres.map(function(g){return g.n;}).join(' x ')+(conductor.genres.length>1?' (BLEND)':'')+' -- '+_lo+'-'+_hi+' bpm, '+(_g0.mode==='A'?'minor':_g0.mode==='B'?'major':'either')+' lean'+_ht,'n');}
+ conductor.genres=genresIn(intent);conductor.halfBridge=false;if(conductor.genres.length){var _lo=Math.min.apply(null,conductor.genres.map(function(g){return g.bpm[0];}));var _hi=Math.max.apply(null,conductor.genres.map(function(g){return g.bpm[1];}));var _g0=conductor.genres[0];if(_g0.mode)conductor.keyBias=_g0.mode;var _half=conductor.genres.filter(function(g){return g.half;}),_slow=conductor.genres.filter(function(g){return !g.half;}),_nb;if(conductor.genres.length>1&&_half.length&&_slow.length){conductor.halfBridge=true;var _sg=_slow.reduce(function(a,b){return (a.bpm[0]+a.bpm[1])<=(b.bpm[0]+b.bpm[1])?a:b;});_nb=Math.round((_sg.bpm[0]+_sg.bpm[1])/2);}else{_nb=Math.round((_lo+_hi)/2);}var _cur=bpm();if(conductor.halfBridge||_cur<_lo||_cur>_hi){$('bpm').value=_nb;$('bpmReadout').textContent=_nb;refreshRates();}var _ht=conductor.halfBridge?(' -- half-time bridge: '+_slow.map(function(g){return g.n;}).join('/')+' anchors at '+_nb+' bpm, '+_half.map(function(g){return g.n;}).join('/')+' half-times under it'):'';cvLog('genre: '+conductor.genres.map(function(g){return g.n;}).join(' x ')+(conductor.genres.length>1?' (BLEND)':'')+' -- '+_lo+'-'+_hi+' bpm, '+(_g0.mode==='A'?'minor':_g0.mode==='B'?'major':'either')+' lean'+_ht,'n');}
  var sb=parseInt(plan.session_bpm,10);if(sb>=60&&sb<=180){$('bpm').value=sb;$('bpmReadout').textContent=sb;refreshRates();if(clockOn)startClock();}
  conductor.arc=Array.isArray(plan.arc)?plan.arc:[];
  if(plan.note)cvLog(plan.note,'n');
@@ -1065,9 +1102,11 @@ $('capBtn').onclick=captureSource;
 $('fileBtn').onclick=function(){$('fileInput').click();};
 $('llBtn').onclick=liveLoopInput;
 $('llArm').onclick=armLoopCapture;
+$('llCal').onclick=calibrateLatency;
 $('llAI').onclick=function(){liveIn.mode=(liveIn.mode==='AI'?'human':'AI');var b=$('llAI');b.textContent=liveIn.mode;b.classList.toggle('on',liveIn.mode==='AI');if(liveIn.mode==='AI'){if(!started)startAudio();aiLoopStart();}else aiLoopStop();};
 $('urlBtn').onclick=loadUrl;
 $('grabBtn').onclick=grabYouTube;
+$('recBtn').onclick=function(){rec.on?recStop():recStart();};
 $('clockBtn').onclick=function(){clockOn=!clockOn;$('clockBtn').classList.toggle('on',clockOn);if(clockOn){if(!started)startAudio();startClock();}else stopClock();};
 $('bpm').onchange=function(){$('bpmReadout').textContent=bpm();refreshRates();restretchAll();if(clockOn)startClock();};
 $('resyncBtn').onclick=function(){pendingResync=true;if(!clockOn)doResync();else setStatus('re-sync queued for downbeat');};
