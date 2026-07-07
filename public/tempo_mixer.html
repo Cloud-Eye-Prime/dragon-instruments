@@ -239,13 +239,15 @@ function buildMasterStrip(){if($('masterStrip'))return;
  masterData=new Uint8Array(masterAn.fftSize);}
 function syncMasterUI(v){var ms=$('masterStrip');if(ms){var f=ms.querySelector('.fader');f.querySelector('.fcap').style.top=capTop(f,v)+'px';$('masterDb').textContent=dbStr(v);}$('masterVol').value=Math.round(v*100);$('masterReadout').textContent=Math.round(v*100)+'%';}
 
-function startClock(){stopClock();var t=function(){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);};clockTimer=setInterval(t,60000/bpm());}
-function stopClock(){if(clockTimer)clearInterval(clockTimer);clockTimer=null;}
+var SCHED_AHEAD=0.15,SCHED_TICK=25,schedTimer=null,nextBeatTime=0;
+function startClock(){if(!started)return;if(schedTimer)return;nextBeatTime=ctx.currentTime+0.06;schedTimer=setInterval(clockScheduler,SCHED_TICK);}
+function stopClock(){if(schedTimer){clearInterval(schedTimer);schedTimer=null;}}
+function clockScheduler(){if(!started)return;var spb=60/bpm();while(nextBeatTime<ctx.currentTime+SCHED_AHEAD){beatCount++;var b=beatCount%4;if(clockOn)bc.postMessage({type:'clock',bpm:bpm(),beat:b+1});if(b===0&&pendingResync){doResync();pendingResync=false;}if(dj.on)djTick(Math.floor(beatCount/4),b);if(conductor.bedsOn){conductorStep(nextBeatTime);conductorStep(nextBeatTime+spb/2);}nextBeatTime+=spb;}}
 function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio){try{ch.audio.currentTime=0;}catch(e){}}});if(loopBuffer)restartLoop();setStatus('re-synced');}
 
 function handleBus(m){if(!m||!m.type)return;if(m.type==='hello')ensureComposer(m.id,m.name);else if(m.type==='bye')removeChannel(m.id);else if(m.type==='note'){var ch=ensureComposer(m.id,m.name);composerNote(ch,m.note|0,m.vel||100,m.dur||0.4);}}
 function ensureComposer(id,name){if(channels.has(id))return channels.get(id);return buildChannel({id:id,type:'composer',name:name||'Composer',color:COLS[order.length%COLS.length],head:null,group:null});}
-function composerNote(ch,midi,vel,dur){if(!started)return;var f=440*Math.pow(2,(midi-69)/12),now=ctx.currentTime,d=Math.max(0.05,dur);var o=ctx.createOscillator();o.type=ch.timbre||'sine';o.frequency.value=f;var g=ctx.createGain(),v=Math.max(0,Math.min(1,vel/127))*0.3;g.gain.setValueAtTime(v,now);g.gain.exponentialRampToValueAtTime(0.0008,now+d);o.connect(g);g.connect(ch.nodes.inGain);o.start(now);o.stop(now+d+0.05);}
+function composerNote(ch,midi,vel,dur,when){if(!started)return;var f=440*Math.pow(2,(midi-69)/12),now=(when||ctx.currentTime),d=Math.max(0.05,dur);var o=ctx.createOscillator();o.type=ch.timbre||'sine';o.frequency.value=f;var g=ctx.createGain(),v=Math.max(0,Math.min(1,vel/127))*0.3;g.gain.setValueAtTime(v,now);g.gain.exponentialRampToValueAtTime(0.0008,now+d);o.connect(g);g.connect(ch.nodes.inGain);o.start(now);o.stop(now+d+0.05);}
 
 function makeImpulse(sec,decay){var rate=ctx.sampleRate,len=Math.max(1,sec*rate|0),b=ctx.createBuffer(2,len,rate);for(var ch=0;ch<2;ch++){var d=b.getChannelData(ch);for(var i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}return b;}
 function deg(v){return -135+v*270;}
@@ -589,7 +591,7 @@ $('vibeBtn').onclick=aiVibe;
 // control back; panic stops it dead; undo rewinds to before the set began.
 var dj={on:false,plan:{},plannedThrough:-1,intents:[],requesting:false,coolUntil:0};
 var DJ_LEAD=2,DJ_WINDOW=4;
-var DJ_SYS='You are a live AI DJ riding a small mixing console mid-set. You write the NEAR FUTURE: bounded mix moves for the requested bars, each landing on that bar\'s downbeat and ramping over a few beats. Output ONLY raw JSON, no prose, no fences. Schema: {"moves":[{"bar":int,"strip":string,"param":string,"to":float,"beats":int}],"intent":string}. bar = absolute bar number, only from the requested list. param one of fader,high,mid,low,filt,rev,dly,pan -- or "xfade" (then omit strip). to = target 0..1 with console knob semantics (0.5 neutral EQ; filt 0.5 off, lower closes a low-pass, higher opens a high-pass; fader 0.78 unity-ish; xfade 0 full L group, 1 full R). beats = ramp length 1..16. Write 1-4 moves per bar, not every bar needs moves. Build tension and release: sweep filters into transitions, trade groups on the crossfader when both exist, never slam everything at once. intent = one short phrase for the human watching. EXAMPLE -- at bar 16, 124 bpm, deckA (Bonobo, L) is up and deckB (Tycho, R) is low; hand the floor to deckB with a drop on bar 20. You return EXACTLY: {"moves":[{"bar":17,"strip":"deckB","param":"fader","to":0.6,"beats":8},{"bar":17,"strip":"deckB","param":"low","to":0.3,"beats":4},{"bar":18,"strip":"deckA","param":"filt","to":0.68,"beats":8},{"bar":18,"strip":"deckA","param":"low","to":0.35,"beats":8},{"bar":18,"param":"xfade","to":0.65,"beats":8},{"bar":19,"strip":"deckA","param":"filt","to":0.85,"beats":4},{"bar":19,"strip":"deckA","param":"rev","to":0.35,"beats":4},{"bar":19,"strip":"pad","param":"fader","to":0.4,"beats":8},{"bar":19,"strip":"deckA","param":"dly","to":0.3,"beats":4},{"bar":20,"param":"xfade","to":0.95,"beats":2},{"bar":20,"strip":"deckB","param":"low","to":0.5,"beats":1},{"bar":20,"strip":"deckB","param":"fader","to":0.78,"beats":2},{"bar":20,"strip":"deckA","param":"fader","to":0.2,"beats":8}],"intent":"high-pass Bonobo into the turn, Tycho bass drops on 20"} Notice the craft: high-pass and wash the OUTGOING deck (filt up + rev/dly tail), trade the bass frequencies so the two never mud, ride the groups across the crossfader, and land the deckB bass on the downbeat of the drop -- staged across the bars, never all at once.';
+var DJ_SYS='You are a live AI DJ riding a small mixing console mid-set. You write the NEAR FUTURE: bounded mix moves for the requested bars, each landing on that bar\'s downbeat and ramping over a few beats. Output ONLY raw JSON, no prose, no fences. Schema: {"moves":[{"bar":int,"strip":string,"param":string,"to":float,"beats":int}],"intent":string}. bar = absolute bar number, only from the requested list. param one of fader,high,mid,low,filt,rev,dly,pan -- or "xfade" (then omit strip). to = target 0..1 with console knob semantics (0.5 neutral EQ; filt 0.5 off, lower closes a low-pass, higher opens a high-pass; fader 0.78 unity-ish; xfade 0 full L group, 1 full R). beats = ramp length 1..16. Write 1-4 moves per bar, not every bar needs moves. Build tension and release: sweep filters into transitions, trade groups on the crossfader when both exist, never slam everything at once. intent = one short phrase for the human watching. EXAMPLE -- at bar 16, 124 bpm, deckA (Bonobo, L) is up and deckB (Tycho, R) is low; hand the floor to deckB with a drop on bar 20. You return EXACTLY: {"moves":[{"bar":17,"strip":"deckB","param":"fader","to":0.6,"beats":8},{"bar":17,"strip":"deckB","param":"low","to":0.3,"beats":4},{"bar":18,"strip":"deckA","param":"filt","to":0.68,"beats":8},{"bar":18,"strip":"deckA","param":"low","to":0.35,"beats":8},{"bar":18,"param":"xfade","to":0.65,"beats":8},{"bar":19,"strip":"deckA","param":"filt","to":0.85,"beats":4},{"bar":19,"strip":"deckA","param":"rev","to":0.35,"beats":4},{"bar":19,"strip":"pad","param":"fader","to":0.4,"beats":8},{"bar":19,"strip":"deckA","param":"dly","to":0.3,"beats":4},{"bar":20,"param":"xfade","to":0.95,"beats":2},{"bar":20,"strip":"deckB","param":"low","to":0.5,"beats":1},{"bar":20,"strip":"deckB","param":"fader","to":0.78,"beats":2},{"bar":20,"strip":"deckA","param":"fader","to":0.2,"beats":8}],"intent":"high-pass Bonobo into the turn, Tycho bass drops on 20"} Notice the craft: high-pass and wash the OUTGOING deck (filt up + rev/dly tail), trade the bass frequencies so the two never mud, ride the groups across the crossfader, and land the deckB bass on the downbeat of the drop -- staged across the bars, never all at once. THREE more principles by example: (a) RESTRAINT -- when the mix already works, the right answer is NO moves: {"moves":[],"intent":"let it ride, the groove holds"}. Do not fidget every bar; an empty moves list is a valid, often correct answer. (b) SECTION-AWARE ENTRY -- bring an incoming deck in on a LOW-density section (its intro or a break, per the manifest), never onto its own drop: {"moves":[{"bar":33,"strip":"deckB","param":"fader","to":0.5,"beats":8}],"intent":"ease deckB in on its intro"}. (c) LONG-RANGE ENERGY TURN -- after a peak, shed energy across MANY bars, never a hard cut: {"moves":[{"bar":48,"strip":"lead","param":"filt","to":0.35,"beats":8},{"bar":48,"param":"xfade","to":0.5,"beats":16}],"intent":"begin the descent, filter down, ease back to center"}.';
 function djApplyMove(mv){var sec=mv.beats*60/bpm(),tc=Math.max(0.05,sec/3);
  if(mv.param==='xfade'){animXfade(mv.to,sec);return;}
  var c=channels.get(mv.strip);if(!c)return;
@@ -646,27 +648,44 @@ $('djBtn').onclick=function(){dj.on?djStop():djStart();};
 // the grabber keyword lane when live and degrades honestly when it is not
 // (the grabber q=/analyze= lane is Phase 1 of the plan, deploy-gated).
 var conductorMode=false;
-var conductor={on:false,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
+var conductor={on:false,bedsOn:false,beds:[],root:57,scale:[0,2,3,5,7,8,10],step:0,timer:null,arc:[]};
 var SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],phrygian:[0,1,3,5,7,8,10],pentatonic:[0,2,4,7,9]};
 var NOTEBASE={c:0,'c#':1,db:1,d:2,'d#':3,eb:3,e:4,f:5,'f#':6,gb:6,g:7,'g#':8,ab:8,a:9,'a#':10,bb:10,b:11};
 var BEDTIMBRE={bass:'sawtooth',pad:'triangle',drone:'sine',lead:'square',arp:'square'};
 function cvLog(msg,cls){var l=$('cvLog');if(!l)return;var d=document.createElement('div');if(cls)d.className=cls;d.textContent=msg;l.appendChild(d);l.scrollTop=l.scrollHeight;toShell('narrate',{line:msg,cls:cls||''});}
 function parseKey(s){s=String(s||'A:minor').toLowerCase().replace(/_/g,' ');var m=s.match(/([a-g][#b]?)\s*[:\s-]*\s*([a-z]+)?/);var root=57,scale=SCALES.minor;if(m){if(m[1]in NOTEBASE)root=57+((NOTEBASE[m[1]]-9+12)%12);var sc=m[2]||'minor';for(var k in SCALES){if(sc.indexOf(k)===0){scale=SCALES[k];break;}}}return {root:root,scale:scale};}
 function setConductorMode(on){conductorMode=on;document.body.classList.toggle('conductor',on);$('modeConsole').classList.toggle('on',!on);$('modeConductor').classList.toggle('on',on);setStatus(on?'Conductor mode -- type what you want to hear':'Console mode -- your hands drive');}
-function conductorBeat(){
- if(!conductor.on)return;
+// seeded melodic walk -- replaces the old cyclic sc[bar%sc.length] bed line that
+// repeated every 3-7 bars. mulberry32(seed) gives a huge-period deterministic
+// stream; each bed takes a small stepwise (Markov-ish) walk over the scale so the
+// beds never loop yet stay in key + range. conductor.seed is settable (Phase 3).
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+var _rng=mulberry32(123456789);
+function reseedBeds(seed){conductor.seed=(seed>>>0)||((typeof performance!=='undefined'?(performance.now()*1000)>>>0:12345));_rng=mulberry32(conductor.seed);conductor.beds.forEach(function(b){b.deg=null;});}
+function bedWalk(b,role,root,sc){
+ var span=(role==='lead'||role==='arp')?3:(role==='bass'?1:2);
+ var stepv=Math.round((_rng()*2-1)*span);
+ var d=(b.deg==null?sc.length:b.deg)+stepv;
+ var HI=sc.length*3,LO=0;
+ if(d<LO)d=LO-(d-LO);if(d>=HI)d=HI-1-(d-(HI-1));if(d<LO)d=LO;
+ b.deg=d;
+ var base=(role==='bass'?-12:(role==='lead'||role==='arp')?12:0);
+ var oct=(Math.floor(d/sc.length)-1)*12;
+ return root+base+oct+sc[d%sc.length];
+}
+function conductorStep(when){
  var s=conductor.step++,bar=Math.floor(s/8),bt=s%8,sc=conductor.scale,root=conductor.root;
  conductor.beds.forEach(function(b){
   var ch=channels.get(b.id);if(!ch)return;var play=null,dur=0.4,vel=85;
-  if(b.role==='bass'){if(bt===0||bt===4){play=root-12+sc[bar%sc.length];dur=0.9;vel=100;}}
-  else if(b.role==='pad'||b.role==='drone'){if(bt===0){play=root+sc[(bar*2)%sc.length];dur=2.3;vel=55;}}
-  else if(b.role==='lead'||b.role==='arp'){play=root+12+sc[s%sc.length];dur=0.26;vel=78;}
-  else{if(bt%2===0){play=root+sc[s%sc.length];dur=0.5;vel=72;}}
-  if(play!=null)composerNote(ch,play,vel,dur);
+  if(b.role==='bass'){if(bt===0||bt===4){play=bedWalk(b,'bass',root,sc);dur=0.9;vel=100;}}
+  else if(b.role==='pad'||b.role==='drone'){if(bt===0){play=bedWalk(b,b.role,root,sc);dur=2.3;vel=55;}}
+  else if(b.role==='lead'||b.role==='arp'){play=bedWalk(b,b.role,root,sc);dur=0.26;vel=78;}
+  else{if(bt%2===0){play=bedWalk(b,'other',root,sc);dur=0.5;vel=72;}}
+  if(play!=null)composerNote(ch,play,vel,dur,when);
  });
 }
-function startConductorBeds(){if(conductor.timer)clearInterval(conductor.timer);conductor.step=0;conductor.timer=setInterval(conductorBeat,Math.max(60,60000/bpm()/2));}
-function stopConductorBeds(){if(conductor.timer){clearInterval(conductor.timer);conductor.timer=null;}}
+function startConductorBeds(){conductor.step=0;conductor.bedsOn=true;reseedBeds(conductor.seed);if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');}startClock();}
+function stopConductorBeds(){conductor.bedsOn=false;}
 var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (you MAY name real artists/songs/albums). synth_beds = 1-4 rights-clean internal voices; role one of bass,pad,drone,lead,arp; key = a short unique id. arc = 2-5 phases describing the set shape. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener. EXAMPLE -- Intent: cinematic build in A minor at 120 bpm, Olafur Arnalds and Hans Zimmer, three movements. You return EXACTLY (no prose, no fences): {"queries":["Olafur Arnalds re:member","Hans Zimmer Time"],"synth_beds":[{"key":"drone","role":"drone"},{"key":"pad","role":"pad"}],"arc":[{"phase":"intro","bars":16,"focus":"lone drone, sparse"},{"phase":"build","bars":32,"focus":"layer strings, rising filter"},{"phase":"peak","bars":16,"focus":"full harmony then release"}],"session_key":"A:minor","session_bpm":120,"note":"Three movements, from a single breath to full sky."} Rules the example shows: honor the named bpm and key EXACTLY; the arc has one phase per movement named; the note is one warm line, never inside the JSON fences.';
 async function conductorPlan(){
  if(!started)startAudio();
