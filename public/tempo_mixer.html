@@ -255,7 +255,7 @@ function doResync(){channels.forEach(function(ch){if(ch.type==='file'&&ch.audio)
 
 function handleBus(m){if(!m||!m.type)return;if(m.type==='hello')ensureComposer(m.id,m.name);else if(m.type==='bye')removeChannel(m.id);else if(m.type==='note'){var ch=ensureComposer(m.id,m.name);composerNote(ch,m.note|0,m.vel||100,m.dur||0.4);}}
 function ensureComposer(id,name){if(channels.has(id))return channels.get(id);return buildChannel({id:id,type:'composer',name:name||'Composer',color:COLS[order.length%COLS.length],head:null,group:null});}
-function composerNote(ch,midi,vel,dur,when){if(!started)return;var f=440*Math.pow(2,(midi-69)/12),now=(when||ctx.currentTime),d=Math.max(0.05,dur);var o=ctx.createOscillator();o.type=ch.timbre||'sine';o.frequency.value=f;var g=ctx.createGain(),v=Math.max(0,Math.min(1,vel/127))*0.3;g.gain.setValueAtTime(v,now);g.gain.exponentialRampToValueAtTime(0.0008,now+d);o.connect(g);g.connect(ch.nodes.inGain);o.start(now);o.stop(now+d+0.05);}
+function composerNote(ch,midi,vel,dur,when){if(!started)return;var f=440*Math.pow(2,(midi-69)/12),now=(when||ctx.currentTime),d=Math.max(0.06,dur),tim=ch.timbre||'triangle';var peak=Math.max(0,Math.min(1,vel/127))*0.24,atk=Math.min(0.02,d*0.3),rel=Math.min(0.28,d*0.6);var lp=ctx.createBiquadFilter();lp.type='lowpass';lp.Q.value=0.7;lp.frequency.setValueAtTime(Math.min(11000,f*5+900),now);lp.frequency.setTargetAtTime(Math.min(5200,f*2.4+600),now+atk,Math.max(0.05,d*0.5));var env=ctx.createGain();env.gain.setValueAtTime(0.0001,now);env.gain.linearRampToValueAtTime(peak,now+atk);env.gain.setTargetAtTime(peak*0.55,now+atk,Math.max(0.04,d*0.35));env.gain.setTargetAtTime(0.0001,now+d,Math.max(0.03,rel*0.4));lp.connect(env);env.connect(ch.nodes.inGain);var oscs=[],stopAt=now+d+rel+0.12;function osc(type,det,gv){var o=ctx.createOscillator();o.type=type;o.frequency.value=f;if(det)o.detune.value=det;var og=ctx.createGain();og.gain.value=gv;o.connect(og);og.connect(lp);oscs.push(o);return o;}if(tim==='fm'){var c=ctx.createOscillator();c.type='sine';c.frequency.value=f;var m=ctx.createOscillator();m.type='sine';m.frequency.value=f*2.01;var mg=ctx.createGain();mg.gain.setValueAtTime(f*2.2,now);mg.gain.setTargetAtTime(f*0.4,now,Math.max(0.05,d*0.4));m.connect(mg);mg.connect(c.frequency);var cg=ctx.createGain();cg.gain.value=0.85;c.connect(cg);cg.connect(lp);oscs.push(c,m);}else if(tim==='pluck'){osc('triangle',0,0.65);osc('sawtooth',6,0.22);lp.frequency.cancelScheduledValues(now);lp.frequency.setValueAtTime(Math.min(12000,f*9),now);lp.frequency.setTargetAtTime(Math.max(700,f*1.6),now,Math.max(0.04,d*0.28));}else if(tim==='saw'||tim==='sawtooth'){osc('sawtooth',-7,0.4);osc('sawtooth',7,0.4);var s1=osc('sine',0,0.3);s1.frequency.value=f/2;}else if(tim==='square'||tim==='reed'){osc('square',0,0.38);osc('triangle',0,0.5);}else if(tim==='am'){osc('sine',0,0.6);osc('triangle',7,0.28);}else{osc(tim==='sine'?'sine':'triangle',0,0.62);var s2=osc('sine',0,0.28);s2.frequency.value=f/2;}oscs.forEach(function(o){o.start(now);o.stop(stopAt);});}
 
 function makeImpulse(sec,decay){var rate=ctx.sampleRate,len=Math.max(1,sec*rate|0),b=ctx.createBuffer(2,len,rate);for(var ch=0;ch<2;ch++){var d=b.getChannelData(ch);for(var i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}return b;}
 function deg(v){return -135+v*270;}
@@ -418,7 +418,7 @@ function aiMelSeq(pat,scLen,n,R){
  return out;
 }
 function aiLoopSeed(style,sc){
- var want=Math.max(4,Math.min(15,Math.round(5+(style.dens||0.5)*9)));
+ var want=Math.max(3,Math.min(9,Math.round(3+(style.dens||0.5)*6)));
  var steps=[],used={};
  for(var i=0;i<want;i++){var st=(style.pat==='arp'||style.pat==='fifths')?Math.round(i*16/want)%16:Math.floor(_rng()*16);var guard=0;while(used[st]&&guard<16){st=(st+1)%16;guard++;}if(used[st])continue;used[st]=1;steps.push(st);}
  steps.sort(function(a,b){return a-b;});
@@ -457,7 +457,7 @@ function aiLoopEvolve(){
 // Plays every event whose step16 matches; keeps in-scale + follows conductor.root.
 function aiLoopTick(when,step16,barAbs){
  if(!aiLoop.on)return;var ch=channels.get('ailoop');if(!ch)return;
- var root=conductor.root||aiLoop.root,sc=aiLoop.scale,spb=60/bpm(),dur=spb*0.45;
+ var root=conductor.root||aiLoop.root,sc=aiLoop.scale,spb=60/bpm(),dur=spb*(aiLoop.styleName&&aiLoop.styleName.indexOf('arp')>=0?0.6:0.9);
  aiLoop.pattern.forEach(function(e){
   if(e.step16!==step16)return;
   var oct=Math.floor(e.deg/sc.length)*12;
