@@ -120,7 +120,8 @@ peak -> `liveIn.calSec`; `finishLoopCapture` trims by `calSec` (falls back to
 `ctx.baseLatency+ctx.outputLatency`). `#llCal` button.
 
 ## 12. WAV recording
-`recStart()` taps `master` with a ScriptProcessor into `rec.L/rec.R`; `recStop()` flattens,
+`recStart()` taps `masterLim` (the master limiter -- see 18.6, post-fader/post-limiter so the
+recording matches what is heard) with a ScriptProcessor into `rec.L/rec.R`; `recStop()` flattens,
 `encodeWAV(L,R,sr)` writes a valid 16-bit PCM stereo RIFF/WAVE Blob, and downloads it. `#recBtn`.
 (`encodeWAV` uses `ctx.sampleRate`, so headless 48kHz renders are valid.)
 
@@ -229,3 +230,37 @@ command.
 ### 18.5 Access
 The grabber `/ai` relay and beta-gated features use header `X-Dragon-Beta` = the `BETA_TOKEN`
 Railway var (the shareable beta code held server-side; never the OpenRouter/Anthropic key).
+
+## 19. Addendum (2026-07-08): master limiter, agentic /conduct, premium models, deep plan
+
+### 19.1 Master-bus limiter
+`startAudio()` inserts `masterLim = ctx.createDynamicsCompressor()` (threshold -3 dBFS, knee 0,
+ratio 20, attack 3 ms, release 250 ms) right after the `master` gain. EVERY downstream tap now hangs
+off `masterLim`, not `master`: the analyser->destination (audible), the `streamDest` (webm), the loop
+`proc`, and the WAV `rec.proc`. So what you hear AND what is recorded are both limited. It is transparent
+above -3 dBFS (clean mixes untouched) and only clamps when two loud masters sum past full scale during a
+transition -- which was producing digital clipping before (a hot techno render measured rms 0.554/peak 1.0).
+
+### 19.2 Agentic conductor planning -- grabber `POST /conduct`
+A tool-use loop (OpenRouter) that gives the planning model search tools so it verifies + adjusts track
+picks against real YouTube availability before the set. Tools: `search_tracks` (flat-search + score ->
+candidates with title/uploader/views/duration/fit/studio_likely) and `finalize_plan` (the arc). Returns
+the SAME plan shape `conductorPlan` consumes (`{session_key,session_bpm,arc:[{phase,bars,density,focus,
+queries}],note}`) plus a search `trace`. Beta-gated; `max_steps` + a per-plan search cap bound cost. This
+fixes the failure where a niche/unfindable request silently produced no tracks -- the model now sees
+availability and pivots. The grabber `_score`/`_LIVE_WORDS` also down-rank single-song LIVE recordings and
+visualizer/festival uploads (glastonbury/coachella/kexp/boiler room/unplugged/...) for `kind=track`, so
+the studio master wins.
+
+### 19.3 Premium models
+`anthropic/claude-opus-4.8` and `anthropic/claude-sonnet-5` are in the `AI_MODELS` allowlist -- added in
+CODE (`app.py`), not the Railway var, because a var change triggers a rebuild from the connected GitHub
+source. They shine on `/conduct` (deep planning taste). Opt-in; the tool loop on a premium model is the
+priciest path (shared OpenRouter key) -- watch spend.
+
+### 19.4 Deep-plan toggle (mixer)
+The Conductor bar has a `deep` toggle (`#cvDeep`) + a planning-model `<select>` (`#cvModel`, populated
+live from grabber `/diag`, so Opus 4.8 / Sonnet 5 are selectable). When deep is on, `conductorPlan` routes
+to `conductorDeepPlan()` -> `POST /conduct` with the selected model and falls back to the quick one-shot
+`aiChat` plan on any failure. Both controls are hidden in `?embed` (the shell has its own). Opt-in; the
+default stays the fast one-shot plan.
