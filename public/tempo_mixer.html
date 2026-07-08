@@ -961,15 +961,24 @@ function conductorStep(when){
 }
 function startConductorBeds(){conductor.step=0;conductor.bedsOn=true;reseedBeds(conductor.seed);if(!clockOn){clockOn=true;$('clockBtn').classList.add('on');}startClock();}
 function stopConductorBeds(){conductor.bedsOn=false;}
-var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (name real, well-known artists/songs/albums that fit the vibe -- this is how you look music up). synth_beds = 1-2 QUIET ambient rights-clean pads only; role one of pad,drone,bass (NO arp/lead -- real tracks carry the melody); key = a short unique id. arc = 2-6 BLOCKS in order, each {phase, bars (int), density (0..1 target energy, rising to a peak then easing), focus, queries (1-3 YouTube search phrases to fetch for THIS block)}. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener. EXAMPLE -- Intent: cinematic build in A minor at 120 bpm, Olafur Arnalds and Hans Zimmer, three movements. You return EXACTLY (no prose, no fences): {"queries":["Olafur Arnalds re:member","Hans Zimmer Time"],"synth_beds":[{"key":"drone","role":"drone"},{"key":"pad","role":"pad"}],"arc":[{"phase":"intro","bars":16,"density":0.3,"focus":"lone drone, sparse","queries":["Stars of the Lid","Olafur Arnalds re:member"]},{"phase":"build","bars":32,"density":0.6,"focus":"layer strings, rising filter","queries":["Bonobo Kerala","Tycho Awake"]},{"phase":"peak","bars":16,"density":0.85,"focus":"full harmony then release","queries":["Jon Hopkins Emerald Rush"]}],"session_key":"A:minor","session_bpm":120,"note":"Three movements, from a single breath to full sky."} Rules the example shows: honor the named bpm and key EXACTLY; the arc has one phase per movement named; the note is one warm line, never inside the JSON fences.';
+var CONDUCTOR_SYS='You are the Conductor of a live generative set on a small web mixer. Turn the user intent into a plan. Output ONLY raw JSON, no prose, no fences. Schema: {"queries":[string],"synth_beds":[{"key":string,"role":string}],"arc":[{"phase":string,"bars":int,"focus":string}],"session_key":string,"session_bpm":int,"note":string}. queries = 0-4 YouTube search phrases (name real, well-known artists/songs that fit the vibe). CRITICAL: every query MUST be a specific "Artist - Song title" for ONE individual STUDIO track; NEVER a bare genre, a mix/set/live/compilation/playlist/best-of. BAD: "deep house". GOOD: "Lane 8 - Brightest Lights", "Bicep - Glue". synth_beds = 1-2 QUIET ambient rights-clean pads only; role one of pad,drone,bass (NO arp/lead -- real tracks carry the melody); key = a short unique id. arc = 2-6 BLOCKS in order, each {phase, bars (int), density (0..1 target energy, rising to a peak then easing), focus, queries (1-3 YouTube search phrases to fetch for THIS block)}. session_key like "A:minor" or "F#:dorian". session_bpm integer 60-140. note = one short line to the listener. EXAMPLE -- Intent: cinematic build in A minor at 120 bpm, Olafur Arnalds and Hans Zimmer, three movements. You return EXACTLY (no prose, no fences): {"queries":["Olafur Arnalds re:member","Hans Zimmer Time"],"synth_beds":[{"key":"drone","role":"drone"},{"key":"pad","role":"pad"}],"arc":[{"phase":"intro","bars":16,"density":0.3,"focus":"lone drone, sparse","queries":["Stars of the Lid","Olafur Arnalds re:member"]},{"phase":"build","bars":32,"density":0.6,"focus":"layer strings, rising filter","queries":["Bonobo Kerala","Tycho Awake"]},{"phase":"peak","bars":16,"density":0.85,"focus":"full harmony then release","queries":["Jon Hopkins Emerald Rush"]}],"session_key":"A:minor","session_bpm":120,"note":"Three movements, from a single breath to full sky."} Rules the example shows: honor the named bpm and key EXACTLY; the arc has one phase per movement named; the note is one warm line, never inside the JSON fences.';
 // ===== Phase 6: the audited SPINE + movement advance + candidate load =====
 // auditSpine repairs the model plan in JS (the deterministic 'audit'): fill missing
 // per-block density (position ramp) + queries (flat fallback), clamp bars.
 function auditSpine(plan){var raw=Array.isArray(plan.arc)?plan.arc:[];if(!raw.length)raw=[{phase:'flow',bars:32,density:0.5,focus:'steady groove'}];var n=raw.length;return raw.map(function(a,i){var dens=(typeof a.density==='number')?Math.max(0,Math.min(1,a.density)):Math.round((0.3+0.55*(i/Math.max(1,n-1)))*100)/100;var q=Array.isArray(a.queries)?a.queries.filter(function(x){return typeof x==='string'&&x.length>1;}).slice(0,3):[];if(!q.length&&Array.isArray(plan.queries))q=plan.queries.slice(i,i+2);return {phase:String(a.phase||('block'+(i+1))).slice(0,24),bars:Math.max(4,Math.min(512,parseInt(a.bars,10)||32)),density:dens,focus:String(a.focus||'').slice(0,80),queries:q};});}
 // load one pre-filtered candidate (Camelot-legal + density-in-band + fresh) into the mix,
 // tempo+key-locked to the current walk key. The beds cover any gap before it lands.
+async function conductorOpen(queries){
+ cvLog('acquiring 2 tracks to open -- a short silent load, no filler','n');setStatus('grabbing 2 tracks to open...');
+ try{await prefetchQueries(queries,3);}catch(e){}
+ var tries=0;
+ while(conductor.on&&preFilter(stepper.key,0,1,8).length<1&&tries<16){await new Promise(function(r){setTimeout(r,1500);});tries++;}
+ if(!conductor.on)return;
+ conductorLoadNext();
+ setTimeout(function(){if(conductor.on)conductorLoadNext();},3200);
+}
 function conductorEntrySeek(ch,man){var secs=(man&&man.sections)||[];if(!secs.length||!ch.audio)return;var dur=(secs[secs.length-1].end_s)||0;var early=secs.filter(function(x){return (x.start_s||0)<Math.max(20,dur*0.6);});var pool=early.length?early:secs;var best=pool[0];for(var i=1;i<pool.length;i++){if((pool[i].density||1)<(best.density||1))best=pool[i];}var t=best.start_s||0;if(t>0.3){var seek=function(){try{ch.audio.currentTime=t;}catch(e){}};if(ch.audio.readyState>=1)seek();else ch.audio.addEventListener('loadedmetadata',seek,{once:true});}cvLog('enter on '+(best.label||'low-density')+' ('+Math.round(t)+'s in)','n');}
-function conductorLoadNext(){if(!conductor.on)return null;var cands=preFilter(stepper.key,conductor.densLo,conductor.densHi,8);if(!cands.length)return null;var pick=cands[Math.floor(Math.pow(stepper.rng(),2.2)*cands.length)];markTrack(pick.id);var kk=CAMELOT_TO_KEY[pick.camelot]||{};
+function conductorLoadNext(){if(!conductor.on)return null;var cands=preFilter(stepper.key,conductor.densLo,conductor.densHi,8);if(!cands.length)cands=preFilter(stepper.key,0,1,8);if(!cands.length)return null;var pick=cands[Math.floor(Math.pow(stepper.rng(),2.2)*cands.length)];markTrack(pick.id);var kk=CAMELOT_TO_KEY[pick.camelot]||{};
  // Feature 1: the previously-playing external track becomes the outgoing deck; the new
  // channel is the incoming. Loop + bed + pinned channels are NEVER touched as out/in.
  var prevCh=channels.get(conductor.nowPlaying);
@@ -979,7 +988,7 @@ function conductorLoadNext(){if(!conductor.on)return null;var cands=preFilter(st
   var curBar=Math.max(0,Math.floor(beatCount/4)),phrase=16,startBar=curBar+2;startBar+=(phrase-(startBar%phrase))%phrase;
   var tech=pickTechnique(conductor.energyDir*2,conductor.genres[0]);
   scheduleTransition(prevCh.id,ch.id,tech,startBar);
- }
+ }else if(!prevCh){ch.fader=0.5;recomputeGains(2);cvLog('open at low-med density','n');}
  conductor.nowPlaying=ch.id;
  return ch;}
 // movement advance: at a block boundary, update focus/density, prefetch the NEXT block, load a track
@@ -1033,18 +1042,11 @@ async function conductorPlan(){
  var sb=parseInt(plan.session_bpm,10);if(sb>=60&&sb<=180){$('bpm').value=sb;$('bpmReadout').textContent=sb;refreshRates();if(clockOn)startClock();}
  conductor.arc=Array.isArray(plan.arc)?plan.arc:[];
  if(plan.note)cvLog(plan.note,'n');
- conductor.beds=[];var _AMB={pad:1,drone:1,bass:1,sub:1,warm:1,'':1};
- (plan.synth_beds||[]).filter(function(b){return _AMB[b.role||''];}).slice(0,2).forEach(function(b){
-  var id='cbed-'+String(b.key||b.role||Math.random().toString(36).slice(2,5)).replace(/[^a-z0-9]/gi,'').slice(0,8);
-  var ch=ensureComposer(id,('~'+(b.role||'bed')).slice(0,12));ch.timbre=BEDTIMBRE[b.role]||'triangle';
-  ch.isBed=true;ch.fader=(b.role==='bass'||b.role==='sub')?0.34:0.24;refreshStripUI(ch);
-  conductor.beds.push({id:id,role:(b.role||'pad')});
- });
- if(conductor.beds.length){startConductorBeds();cvLog('beds live: '+conductor.beds.map(function(b){return b.role;}).join(', '),'n');}
+ conductor.beds=[];  // real-audio only -- NO synth beds/pads/filler (Architect directive)
  conductor.blocks=auditSpine(plan);if(conductor.targetSec){var _bt=Math.max(8,Math.round(conductor.targetSec/(4*60/bpm())));var _bsum=conductor.blocks.reduce(function(a,b){return a+b.bars;},0)||1;var _sf=_bt/_bsum;conductor.blocks.forEach(function(b){b.bars=Math.max(8,Math.round(b.bars*_sf));});}conductor.blockIdx=0;conductor.blockStarts=[0];var _acc=0;conductor.blocks.forEach(function(b){_acc+=b.bars;conductor.blockStarts.push(_acc);});
  var b0=conductor.blocks[0];dj.intents=[b0.phase+': '+b0.focus];conductor.densLo=Math.max(0,b0.density-0.12);conductor.densHi=Math.min(1,b0.density+0.12);conductor.energyDir=(conductor.blocks[1]&&conductor.blocks[1].density<b0.density)?-1:1;
  cvLog('spine: '+conductor.blocks.length+' blocks -- '+conductor.blocks.map(function(b){return b.phase+'@'+b.density;}).join(' / '),'n');
- prefetchQueries(b0.queries,3).then(function(){if(!conductor.on)return;conductorLoadNext();setTimeout(function(){if(conductor.on)conductorLoadNext();},1600);});
+ conductorOpen(b0.queries);
  if(/\b(add a lead|lead loop|with a lead|solo loop|add a topline)\b/i.test(intent))leadStart(intent);
  setTimeout(function(){if(conductor.on&&!dj.on)djStart();},600);
  if(conductor.targetSec)setTimeout(function(){if(conductor.on){conductorStop();cvLog('set complete -- '+Math.round(conductor.targetSec/60)+' min','n');}},conductor.targetSec*1000);
