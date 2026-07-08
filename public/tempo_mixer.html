@@ -387,7 +387,7 @@ var rec={on:false,proc:null,sink:null,L:[],R:[]};
 function exportLog(){var t=($('cvLog')?$('cvLog').innerText:'')||'(empty)';var head='dragon conductor log '+new Date().toISOString()+'\nbpm '+bpm()+' target '+Math.round((conductor.targetSec||0)/60)+'min beds:'+(conductor.beds||[]).map(function(b){return b.role;}).join('/')+' channels:'+order.map(function(id){var c=channels.get(id);return c?(c.name+'@'+c.fader.toFixed(2)):'';}).filter(Boolean).join(', ')+'\n\n';var blob=new Blob([head+t],{type:'text/plain'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='dragon-conductor-log.txt';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(url);a.remove();},1200);setStatus('conductor log downloaded -- share it to refine');}
 function recStart(){if(!started)startAudio();if(rec.on)return;rec.L=[];rec.R=[];rec.proc=ctx.createScriptProcessor(4096,2,2);rec.sink=ctx.createGain();rec.sink.gain.value=0;masterLim.connect(rec.proc);rec.proc.connect(rec.sink);rec.sink.connect(ctx.destination);rec.proc.onaudioprocess=function(e){if(!rec.on)return;var ib=e.inputBuffer;rec.L.push(new Float32Array(ib.getChannelData(0)));rec.R.push(new Float32Array(ib.numberOfChannels>1?ib.getChannelData(1):ib.getChannelData(0)));};rec.on=true;var b=$('recBtn');if(b){b.classList.add('on');b.textContent='stop';}setStatus('recording master to WAV...');}
 function recStop(){if(!rec.on)return;rec.on=false;try{masterLim.disconnect(rec.proc);}catch(e){}try{rec.proc.disconnect();}catch(e){}try{rec.sink.disconnect();}catch(e){}var L=flatten(rec.L),R=flatten(rec.R);rec.L=[];rec.R=[];var b=$('recBtn');if(b){b.classList.remove('on');b.textContent='rec';}if(!L.length){setStatus('nothing recorded');return;}var blob=encodeWAV(L,R,ctx.sampleRate);var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='dragon-mix-'+Date.now()+'.wav';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(url);a.remove();},1500);setStatus('WAV saved: '+(L.length/ctx.sampleRate).toFixed(1)+'s master recording');}
-function encodeWAV(L,R,sr){var n=Math.min(L.length,R.length),buf=new ArrayBuffer(44+n*4),v=new DataView(buf);function ws(o,str){for(var i=0;i<str.length;i++)v.setUint8(o+i,str.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+n*4,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,2,true);v.setUint32(24,sr,true);v.setUint32(28,sr*4,true);v.setUint16(32,4,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,n*4,true);var o=44;for(var i=0;i<n;i++){var l=Math.max(-1,Math.min(1,L[i])),r=Math.max(-1,Math.min(1,R[i]));v.setInt16(o,(l<0?l*0x8000:l*0x7FFF)|0,true);o+=2;v.setInt16(o,(r<0?r*0x8000:r*0x7FFF)|0,true);o+=2;}return new Blob([buf],{type:'audio/wav'});}
+// encodeWAV is defined once, at the WAV-capture block below (dedup: a second identical decl was removed)
 
 // ===== FEATURE 2: AI-MODE LIVE LOOPER (generative pattern from the synth stack) =====
 // The live-loop mode gets a human/AI toggle. AI mode GENERATES a melodic loop from the
@@ -604,7 +604,7 @@ async function conductorDeepPlan(descr){
  }finally{aiBusy=false;}
 }
 // populate the planning-model dropdown from the grabber /diag allowlist (adds Opus/Sonnet live)
-async function populateModels(){try{var base=$('grabBase').value.trim().replace(/[\/]+$/,'');var r=await fetch(base+'/diag');if(!r.ok)return;var d=await r.json();var sel=$('cvModel');if(!sel||!Array.isArray(d.ai_models))return;var cur=aiModelPick();sel.innerHTML='';var o0=document.createElement('option');o0.value='';o0.textContent='auto';sel.appendChild(o0);d.ai_models.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m.split('/').pop();if(m===cur)o.selected=true;sel.appendChild(o);});}catch(e){}}
+async function populateModels(){var sel=$('cvModel');if(!sel)return;var cur=aiModelPick();sel.innerHTML='';var o0=document.createElement('option');o0.value='';o0.textContent='auto';sel.appendChild(o0);try{var base=$('grabBase').value.trim().replace(/[\/]+$/,'');var r=await fetch(base+'/diag');if(!r.ok)return;var d=await r.json();if(!Array.isArray(d.ai_models))return;d.ai_models.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m.split('/').pop();if(m===cur)o.selected=true;sel.appendChild(o);});if(cur)sel.value=cur;}catch(e){}}
 function aiNeedKey(){$('aiKeyRow').style.display='inline-flex';setStatus('AI unavailable -- paste an Anthropic key, or enter a beta code (the house key answers)');}
 function aiNeedBeta(){$('aiKeyRow').style.display='inline-flex';setStatus('private beta -- enter your beta code in the AI bar');}
 (function initAiKey(){try{var k=localStorage.getItem('dragonbridge_ant_key');if(k)$('aiKey').value=k;var m=localStorage.getItem('dragonbridge_ant_model');if(m)$('aiModel').value=m;var b=localStorage.getItem('dragonbridge_beta');if(b)$('aiBeta').value=b;}catch(e){}aiKeyUI();})();
@@ -1040,10 +1040,12 @@ async function conductorPlan(){
  if(conductor.pendingIntent){if(!_len){var _bn=intent.match(/\b(\d{1,3})\b/);_len=_bn?Math.min(90,Math.max(1,parseInt(_bn[1],10)))*60:24*60;}intent=conductor.pendingIntent;conductor.pendingIntent=null;cvLog('length: '+Math.round(_len/60)+' min','n');}
  else if(!_len){conductor.pendingIntent=intent;cvLog('how long should the set be? (e.g. "30 min", up to 90) -- reply, or I default to 24 min','n');setStatus('how long? default 24 min');$('cvIntent').value='';return;}
  conductor.targetSec=Math.min(90*60,Math.max(60,_len||24*60));
+ if(conductor.planning){setStatus('still planning -- one moment');return;}
+ conductor.planning=true;
  $('cvGo').classList.add('on');setStatus('Conductor planning ('+Math.round(conductor.targetSec/60)+' min)...');
  var urls=extractUrls(intent),descr=intent.replace(/https?:\/\/[^\s,;]+/g,'').replace(/\s+/g,' ').trim();
  conductor.userLinks=false;
- if(urls.length){conductor.userLinks=true;cvLog('found '+urls.length+' link(s) -- grabbing to mix from...','n');setStatus('grabbing your '+urls.length+' link(s)...');var _got=await grabLinksToPool(urls);cvLog(_got+' track(s) staged from your links','n');if(!_got&&!descr){$('cvGo').classList.remove('on');setStatus('could not grab those links -- check the urls or the grabber');return;}}
+ if(urls.length){conductor.userLinks=true;cvLog('found '+urls.length+' link(s) -- grabbing to mix from...','n');setStatus('grabbing your '+urls.length+' link(s)...');var _got=await grabLinksToPool(urls);cvLog(_got+' track(s) staged from your links','n');if(!_got&&!descr){conductor.planning=false;$('cvGo').classList.remove('on');setStatus('could not grab those links -- check the urls or the grabber');return;}}
  var plan,_canAI=(typeof aiKey==='function'&&aiKey())||(typeof aiBeta==='function'&&aiBeta());
  if(descr&&_canAI&&deepPlanOn()){
   setStatus('deep plan -- the model is searching + verifying tracks...');cvLog('deep plan: the model is searching YouTube to verify + adjust each pick...','n');
@@ -1056,7 +1058,7 @@ async function conductorPlan(){
    var _ln=conductor.userLinks?(' The user has ALSO staged specific tracks to mix; plan the key/bpm/energy arc AROUND them and you may add a few complementary queries.'):'';
    var text=await aiChat(CONDUCTOR_SYS,'Intent: '+descr+'.'+ctxNote+_ln+' Return JSON only.',900);
    plan=parseAiJson(text);
-  }catch(e){if(e.message!=='no-key'){$('cvGo').classList.remove('on');cvLog('planning failed: '+String(e.message).slice(0,80),'warn');return;}}
+  }catch(e){if(e.message!=='no-key'){conductor.planning=false;$('cvGo').classList.remove('on');cvLog('planning failed: '+String(e.message).slice(0,80),'warn');return;}}
  }
  if(!plan){plan=defaultPlanFromPool(descr);cvLog('mixing '+(conductor.userLinks?'your links':'a synth set')+' with a default arc (no planner call)','n');}
  conductor.on=true;
@@ -1077,7 +1079,7 @@ async function conductorPlan(){
  if(/\b(add a lead|lead loop|with a lead|solo loop|add a topline)\b/i.test(intent))leadStart(intent);
  setTimeout(function(){if(conductor.on&&!dj.on)djStart();},600);
  if(conductor.targetSec)setTimeout(function(){if(conductor.on){conductorStop();cvLog('set complete -- '+Math.round(conductor.targetSec/60)+' min','n');}},conductor.targetSec*1000);
- $('cvGo').classList.remove('on');setStatus('Conductor performing -- touch the console to take over');
+ conductor.planning=false;$('cvGo').classList.remove('on');setStatus('Conductor performing -- touch the console to take over');
 }
 // ===== Phase 7: live steering -- a mid-set chat line NUDGES the remaining spine =====
 // Instant + free (no LLM, no re-plan): adjust the remaining blocks' energy, tempo, and
