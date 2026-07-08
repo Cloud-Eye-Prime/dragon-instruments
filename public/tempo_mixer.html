@@ -92,7 +92,7 @@ body.conductor #aibar{opacity:.55}
 #cvLog{max-height:150px;overflow-y:auto;background:#070b11;border:1px solid var(--bd);border-radius:8px;padding:8px;font-size:11px;line-height:1.55;color:#8ea0b6}
 #cvLog .n{color:var(--cyan)}
 #cvLog .warn{color:var(--amber)}
-body.embed #cvIntent,body.embed #cvGo,body.embed #cvStop,body.embed #cvLog{display:none}
+body.embed #cvIntent,body.embed #cvGo,body.embed #cvStop,body.embed #cvLog,body.embed #cvDeep,body.embed #cvModel{display:none}
 /* embed = clean PERFORMANCE view (the /conductor shell provides the chat): hide the editing
    chrome, keep the channels + the AI's live automation as the instrument. */
 body.embed .tbar{display:none!important}
@@ -179,6 +179,8 @@ body.embed .strip{box-shadow:0 1px 0 rgba(255,255,255,.03) inset}
       <span class="title" style="font-size:11px">CONDUCTOR</span>
       <input class="x" id="cvIntent" placeholder="what do you want to hear? artists, songs, moods -- e.g. moody downtempo, Bonobo and Tycho, slow build">
       <button class="tbtn" id="cvGo" title="plan a set from your words: session key + bpm, rights-clean synth beds start immediately, tracks fetched if the grabber lane is live, then the AI DJ performs. Costs one call on your key.">conduct</button>
+      <button class="tbtn" id="cvDeep" title="DEEP PLAN (opt-in) -- the planning model gets search tools and checks YouTube to verify + adjust every track pick before the set starts. Slower, higher quality; best with a premium model. Uses the AI relay or your key.">deep</button>
+      <select class="x" id="cvModel" title="planning model -- deep plan uses this (Opus 4.8 / Sonnet 5 = best taste; the cheaper ones are faster). auto = the house default." style="max-width:150px"></select>
       <button class="tbtn" id="cvStop">stop set</button>
       <span class="tdim" id="cvKey">key --</span>
     </div>
@@ -586,6 +588,23 @@ function aiModelId(){return ($('aiModel').value||'').trim()||'claude-sonnet-4-6'
 function aiKeyUI(){var has=!!aiKey();$('aiKeyBtn').textContent=has?'key set':'add key';$('aiKeyBtn').classList.toggle('on',has);}
 function aiBeta(){try{return (localStorage.getItem('dragonbridge_beta')||'').trim();}catch(e){return '';}}
 function aiModelPick(){try{return (localStorage.getItem('dragonbridge_model')||'').trim();}catch(e){return '';}}
+// ===== deep (agentic) planning: the model gets search tools via the grabber /conduct lane =====
+function deepPlanOn(){var b=$('cvDeep');return !!(b&&b.classList.contains('on'));}
+async function conductorDeepPlan(descr){
+ var base=$('grabBase').value.trim().replace(/[\/]+$/,'');
+ var hdrs={'Content-Type':'application/json'};var bt=(typeof aiBeta==='function')?aiBeta():'';if(bt)hdrs['X-Dragon-Beta']=bt;
+ var body={intent:descr,model:aiModelPick(),max_steps:7};if(conductor.targetSec)body.target_sec=conductor.targetSec;
+ if(aiBusy)throw new Error('busy');aiBusy=true;
+ try{
+  var r=await fetch(base+'/conduct',{method:'POST',headers:hdrs,body:JSON.stringify(body)});
+  var d=await r.json().catch(function(){return {};});
+  if(r.status===401)throw new Error('beta code needed for deep plan');
+  if(!r.ok)throw new Error('conduct '+r.status+': '+String(d.detail||d.error||'').slice(0,70));
+  return d;
+ }finally{aiBusy=false;}
+}
+// populate the planning-model dropdown from the grabber /diag allowlist (adds Opus/Sonnet live)
+async function populateModels(){try{var base=$('grabBase').value.trim().replace(/[\/]+$/,'');var r=await fetch(base+'/diag');if(!r.ok)return;var d=await r.json();var sel=$('cvModel');if(!sel||!Array.isArray(d.ai_models))return;var cur=aiModelPick();sel.innerHTML='';var o0=document.createElement('option');o0.value='';o0.textContent='auto';sel.appendChild(o0);d.ai_models.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m.split('/').pop();if(m===cur)o.selected=true;sel.appendChild(o);});}catch(e){}}
 function aiNeedKey(){$('aiKeyRow').style.display='inline-flex';setStatus('AI unavailable -- paste an Anthropic key, or enter a beta code (the house key answers)');}
 function aiNeedBeta(){$('aiKeyRow').style.display='inline-flex';setStatus('private beta -- enter your beta code in the AI bar');}
 (function initAiKey(){try{var k=localStorage.getItem('dragonbridge_ant_key');if(k)$('aiKey').value=k;var m=localStorage.getItem('dragonbridge_ant_model');if(m)$('aiModel').value=m;var b=localStorage.getItem('dragonbridge_beta');if(b)$('aiBeta').value=b;}catch(e){}aiKeyUI();})();
@@ -1026,7 +1045,12 @@ async function conductorPlan(){
  conductor.userLinks=false;
  if(urls.length){conductor.userLinks=true;cvLog('found '+urls.length+' link(s) -- grabbing to mix from...','n');setStatus('grabbing your '+urls.length+' link(s)...');var _got=await grabLinksToPool(urls);cvLog(_got+' track(s) staged from your links','n');if(!_got&&!descr){$('cvGo').classList.remove('on');setStatus('could not grab those links -- check the urls or the grabber');return;}}
  var plan,_canAI=(typeof aiKey==='function'&&aiKey())||(typeof aiBeta==='function'&&aiBeta());
- if(descr&&_canAI){
+ if(descr&&_canAI&&deepPlanOn()){
+  setStatus('deep plan -- the model is searching + verifying tracks...');cvLog('deep plan: the model is searching YouTube to verify + adjust each pick...','n');
+  try{var dp=await conductorDeepPlan(descr);if(dp&&dp.plan&&Array.isArray(dp.plan.arc)&&dp.plan.arc.length){plan=dp.plan;var _mn=String(dp.model||'').split('/').pop();cvLog('deep plan ['+_mn+']: '+(dp.searches||0)+' searches / '+(dp.steps||0)+' steps -- tracks verified findable','n');(dp.trace||[]).slice(0,8).forEach(function(t){cvLog('  checked '+String(t.search).slice(0,42)+' -> '+t.found+' found','n');});}}
+  catch(e){cvLog('deep plan failed ('+String(e.message).slice(0,50)+') -- using quick plan','warn');}
+ }
+ if(descr&&_canAI&&!plan){
   try{
    var ctxNote=channels.size?(' Currently playing: '+order.map(function(id){var c=channels.get(id);return c?c.name:'';}).filter(Boolean).join(', ')+'. Continue from here.'):'';
    var _ln=conductor.userLinks?(' The user has ALSO staged specific tracks to mix; plan the key/bpm/energy arc AROUND them and you may add a few complementary queries.'):'';
@@ -1152,6 +1176,9 @@ $('modeConsole').onclick=function(){setConductorMode(false);};
 $('modeConductor').onclick=function(){if(!started)startAudio();setConductorMode(true);};
 $('cvGo').onclick=conductorPlan;
 $('cvStop').onclick=conductorStop;
+if($('cvDeep'))$('cvDeep').onclick=function(){this.classList.toggle('on');setStatus(this.classList.contains('on')?'deep plan ON -- the model verifies + adjusts every track (slower, richer)':'deep plan off -- quick one-shot plan');};
+if($('cvModel'))$('cvModel').onchange=function(){try{localStorage.setItem('dragonbridge_model',this.value||'');}catch(e){}setStatus('planning model -> '+(this.value?this.value.split('/').pop():'auto'));};
+populateModels();
 $('cvIntent').addEventListener('keydown',function(e){if(e.key==='Enter')conductorPlan();});
 
 $('startBtn').onclick=startAudio;
